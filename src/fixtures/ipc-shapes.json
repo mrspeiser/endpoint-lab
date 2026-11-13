@@ -1,0 +1,120 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8080/items",
+    "headers": [
+      {
+        "name": "Accept",
+        "value": "application/json",
+        "enabled": true,
+        "secret": false
+      }
+    ],
+    "query": [
+      {
+        "name": "q",
+        "value": "rust",
+        "enabled": true,
+        "secret": false
+      }
+    ],
+    "body": {
+      "kind": "json",
+      "value": "{\"a\":1}"
+    },
+    "timeoutMs": 30000
+  },
+  "response": {
+    "status": 200,
+    "statusText": "OK",
+    "headers": [
+      {
+        "name": "content-type",
+        "value": "application/json"
+      }
+    ],
+    "body": {
+      "kind": "text",
+      "content": "{\n  \"ok\": true\n}",
+      "pretty": true
+    },
+    "sizeBytes": 12,
+    "sizeExact": true,
+    "truncated": false,
+    "elapsedMs": 8
+  },
+  "snapshot": {
+    "phase": "measure",
+    "elapsedMs": 250,
+    "total": 40,
+    "success": 38,
+    "httpErrors": 2,
+    "transportErrors": 0,
+    "cancelledAttempts": 0,
+    "inFlight": 4,
+    "rps": 152.0,
+    "latency": {
+      "meanUs": 1200,
+      "minUs": 800,
+      "maxUs": 4000,
+      "p50Us": 1100,
+      "p90Us": 2000,
+      "p95Us": 2500,
+      "p99Us": 3800
+    },
+    "bytes": 4800,
+    "errors": [
+      {
+        "cause": "http_500",
+        "count": 2
+      }
+    ],
+    "histogram": [
+      {
+        "leUs": 1000,
+        "count": 4
+      }
+    ]
+  },
+  "summary": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "startedAtMs": 1700000000000,
+    "elapsedMs": 900,
+    "method": "GET",
+    "url": "http://127.0.0.1:8080/health",
+    "totalRequests": 100,
+    "concurrency": 10,
+    "durationMs": null,
+    "timeoutMs": 10000,
+    "warmupRequests": 0,
+    "total": 100,
+    "success": 98,
+    "httpErrors": 2,
+    "transportErrors": 0,
+    "cancelledAttempts": 0,
+    "rps": 111.11,
+    "latency": {
+      "meanUs": 1200,
+      "minUs": 800,
+      "maxUs": 4000,
+      "p50Us": 1100,
+      "p90Us": 2000,
+      "p95Us": 2500,
+      "p99Us": 3800
+    },
+    "bytes": 12000,
+    "errors": [
+      {
+        "cause": "http_500",
+        "count": 2
+      }
+    ],
+    "histogram": [
+      {
+        "leUs": 1000,
+        "count": 4
+      }
+    ],
+    "cancelled": false
+  }
+}

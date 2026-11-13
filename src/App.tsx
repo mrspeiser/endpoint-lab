@@ -1,50 +1,56 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect } from "react";
+
+import { Sidebar } from "./features/collections/Sidebar";
+import { BenchmarkPane } from "./features/benchmark/BenchmarkPane";
+import { RequestPane } from "./features/request/RequestPane";
+import { useLab } from "./state/lab";
+import "./styles.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const { state, dispatch, send } = useLab();
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && state.mode === "request") {
+        event.preventDefault();
+        void send();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [send, state.mode]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="mark">EL</span>
+          <div>
+            <strong>Endpoint Lab</strong>
+            <small>Local HTTP client</small>
+          </div>
+        </div>
+        <div className="mode-switch" role="tablist">
+          <button type="button" className={state.mode === "request" ? "active" : ""} onClick={() => dispatch({ type: "mode", mode: "request" })}>
+            Request
+          </button>
+          <button type="button" className={state.mode === "benchmark" ? "active" : ""} onClick={() => dispatch({ type: "mode", mode: "benchmark" })}>
+            Benchmark
+          </button>
+        </div>
+        <span className="engine-tag">Rust engine</span>
+      </header>
+      {state.notice ? <div className="banner info">{state.notice}</div> : null}
+      {state.storeStatus && !state.storeStatus.ok ? (
+        <div className="banner bad" role="alert">
+          Saved data could not be loaded. {state.storeStatus.message}
+        </div>
+      ) : null}
+      <div className="workspace">
+        <Sidebar />
+        <main>{state.mode === "request" ? <RequestPane /> : <BenchmarkPane />}</main>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    </div>
   );
 }
 

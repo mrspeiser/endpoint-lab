@@ -1,0 +1,19 @@
+[package]
+name = "endpoint-lab-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Command-line frontend for the Endpoint Lab engine"
+
+[[bin]]
+name = "endpoint-lab"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+endpoint-lab-core = { path = "../core" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
