@@ -144,7 +144,38 @@ pub fn delete_refs(secrets: &dyn SecretStore, refs: &[String]) {
     }
 }
 
-fn seal_headers(headers: &[HeaderEntry], secrets: &dyn SecretStore) -> Result<Vec<HeaderEntry>, Error> {
+pub(crate) fn header_refs(headers: &[HeaderEntry]) -> Vec<String> {
+    headers
+        .iter()
+        .filter_map(|header| header.secret_ref.clone())
+        .collect()
+}
+
+pub(crate) fn unseal_headers(
+    headers: &[HeaderEntry],
+    secrets: &dyn SecretStore,
+) -> Result<Vec<HeaderEntry>, Error> {
+    let mut opened = headers.to_vec();
+    for header in &mut opened {
+        fill_secret(&mut header.value, header.secret_ref.as_deref(), secrets)?;
+    }
+    Ok(opened)
+}
+
+pub(crate) fn forget_header_refs(
+    secrets: &dyn SecretStore,
+    previous: &[HeaderEntry],
+    current: &[HeaderEntry],
+) {
+    let kept: HashSet<_> = header_refs(current).into_iter().collect();
+    let stale: Vec<_> = header_refs(previous)
+        .into_iter()
+        .filter(|id| !kept.contains(id))
+        .collect();
+    delete_refs(secrets, &stale);
+}
+
+pub(crate) fn seal_headers(headers: &[HeaderEntry], secrets: &dyn SecretStore) -> Result<Vec<HeaderEntry>, Error> {
     let mut sealed = Vec::with_capacity(headers.len());
     for header in headers {
         let mut saved = header.clone();

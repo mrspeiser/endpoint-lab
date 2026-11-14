@@ -1,4 +1,4 @@
-//! Local collections, history, and benchmark summaries.
+//! Local domains, collections, history, and benchmark summaries.
 //!
 //! The store is a JSON file plus a [`SecretStore`]. The file never contains
 //! secret values. Tests pass a temporary path and [`MemorySecretStore`]; the
@@ -17,9 +17,13 @@ use crate::error::Error;
 use crate::http::{redact_request, secret_values, HttpRequest};
 use crate::limits::{BENCHMARK_HISTORY_LIMIT, HISTORY_LIMIT};
 use crate::util::{now_ms, scrub, storage};
-use model::{Collection, Document, SavedRequest};
-pub use model::{CollectionSummary, HistoryEntry, LoadedRequest, RequestSummary, StoreStatus};
-use secrets::forget_refs;
+use model::{
+    Collection, Document, Domain, LegacyDocument, SavedBody, SavedHeaderSet, SavedPath,
+};
+pub use model::{
+    BodySummary, CollectionSummary, DomainSummary, HeaderSummary, HistoryEntry, LoadedBody,
+    LoadedHeaders, PathSummary, StoreStatus,
+};
 pub use secrets::{seal_request, unseal_request, KeyringSecretStore, MemorySecretStore, SecretStore};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,15 +54,20 @@ impl Store {
             };
         }
         match fs::read_to_string(&path).and_then(|text| {
-            serde_json::from_str::<Document>(&text).map_err(|err| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, err)
-            })
+            read_document(&text).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
         }) {
-            Ok(doc) => Self {
-                path,
-                doc,
-                load_error: None,
-            },
+            Ok((doc, migrated)) => {
+                let mut store = Self {
+                    path,
+                    doc,
+                    load_error: None,
+                };
+                if migrated && let Err(err) = store.commit(store.doc.clone()) {
+                    store.load_error = Some(err.to_string());
+                    store.doc = Document::default();
+                }
+                store
+            }
             Err(err) => Self {
                 path,
                 doc: Document::default(),
@@ -82,154 +91,361 @@ impl Store {
         }
     }
 
-    pub fn list_collections(&self) -> Vec<CollectionSummary> {
-        self.doc
-            .collections
-            .iter()
-            .map(Collection::summary)
-            .collect()
+    pub fn list_domains(&self) -> Vec<DomainSummary> {
+        self.doc.domains.iter().map(Domain::summary).collect()
     }
 
-    pub fn create_collection(&mut self, name: String) -> Result<CollectionSummary, Error> {
-        let name = require_name(&name, "collection name")?;
+    pub fn create_domain(&mut self, name: String) -> Result<DomainSummary, Error> {
+        let name = require_name(&name, "domain name")?;
         let mut doc = self.doc.clone();
-        let collection = Collection {
+        let domain = Domain {
             id: uuid::Uuid::new_v4().to_string(),
             name,
-            requests: Vec::new(),
+            collections: Vec::new(),
         };
-        let summary = collection.summary();
-        doc.collections.push(collection);
+        let summary = domain.summary();
+        doc.domains.push(domain);
         self.commit(doc)?;
         Ok(summary)
     }
 
-    pub fn rename_collection(&mut self, id: &str, name: String) -> Result<(), Error> {
+    pub fn rename_domain(&mut self, id: &str, name: String) -> Result<(), Error> {
+        let name = require_name(&name, "domain name")?;
+        let mut doc = self.doc.clone();
+        let domain = find_domain_mut(&mut doc, id)?;
+        domain.name = name;
+        self.commit(doc)
+    }
+
+    pub fn delete_domain(&mut self, id: &str, secrets: &dyn SecretStore) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let index = doc
+            .domains
+            .iter()
+            .position(|domain| domain.id == id)
+            .ok_or_else(|| Error::NotFound(format!("domain {id}")))?;
+        let removed = doc.domains.remove(index);
+        let refs = header_refs_in(&removed);
+        self.commit(doc)?;
+        secrets::delete_refs(secrets, &refs);
+        Ok(())
+    }
+
+    pub fn create_collection(&mut self, domain_id: &str, name: String) -> Result<CollectionSummary, Error> {
         let name = require_name(&name, "collection name")?;
         let mut doc = self.doc.clone();
-        let collection = find_collection_mut(&mut doc, id)?;
+        let domain = find_domain_mut(&mut doc, domain_id)?;
+        let collection = Collection {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            paths: Vec::new(),
+            headers: Vec::new(),
+            bodies: Vec::new(),
+        };
+        let summary = collection.summary();
+        domain.collections.push(collection);
+        self.commit(doc)?;
+        Ok(summary)
+    }
+
+    pub fn rename_collection(&mut self, domain_id: &str, id: &str, name: String) -> Result<(), Error> {
+        let name = require_name(&name, "collection name")?;
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, id)?;
         collection.name = name;
         self.commit(doc)
     }
 
-    pub fn delete_collection(&mut self, id: &str, secrets: &dyn SecretStore) -> Result<(), Error> {
+    pub fn delete_collection(
+        &mut self,
+        domain_id: &str,
+        id: &str,
+        secrets: &dyn SecretStore,
+    ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
-        let index = doc
+        let domain = find_domain_mut(&mut doc, domain_id)?;
+        let index = domain
             .collections
             .iter()
             .position(|collection| collection.id == id)
             .ok_or_else(|| Error::NotFound(format!("collection {id}")))?;
-        let removed = doc.collections.remove(index);
-        let refs = removed
-            .requests
-            .iter()
-            .flat_map(|saved| secrets::refs_of(&saved.request))
-            .collect::<Vec<_>>();
+        let removed = domain.collections.remove(index);
+        let refs = header_refs_in_collection(&removed);
         self.commit(doc)?;
         secrets::delete_refs(secrets, &refs);
         Ok(())
     }
 
-    pub fn save_request(
+    pub fn save_path(
         &mut self,
-        secrets: &dyn SecretStore,
+        domain_id: &str,
         collection_id: &str,
-        name: String,
-        request: &HttpRequest,
-    ) -> Result<RequestSummary, Error> {
-        let name = request_name(&name);
-        let sealed = seal_request(request, secrets)?;
+        method: crate::http::Method,
+        path: String,
+    ) -> Result<PathSummary, Error> {
+        let path = normalize_path(&path)?;
         let mut doc = self.doc.clone();
-        let collection = find_collection_mut(&mut doc, collection_id)?;
-        let saved = SavedRequest {
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let saved = SavedPath {
             id: uuid::Uuid::new_v4().to_string(),
-            name,
-            request: sealed,
+            method,
+            path,
             created_at_ms: now_ms(),
             updated_at_ms: now_ms(),
         };
         let summary = saved.summary();
-        collection.requests.push(saved);
+        collection.paths.push(saved);
         self.commit(doc)?;
         Ok(summary)
     }
 
-    pub fn update_request(
+    pub fn update_path(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        path_id: &str,
+        method: crate::http::Method,
+        path: String,
+    ) -> Result<PathSummary, Error> {
+        let path = normalize_path(&path)?;
+        let mut doc = self.doc.clone();
+        let saved = find_path_mut(&mut doc, domain_id, collection_id, path_id)?;
+        saved.method = method;
+        saved.path = path;
+        saved.updated_at_ms = now_ms();
+        let summary = saved.summary();
+        self.commit(doc)?;
+        Ok(summary)
+    }
+
+    pub fn delete_path(&mut self, domain_id: &str, collection_id: &str, path_id: &str) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let index = collection
+            .paths
+            .iter()
+            .position(|saved| saved.id == path_id)
+            .ok_or_else(|| Error::NotFound(format!("path {path_id}")))?;
+        collection.paths.remove(index);
+        self.commit(doc)
+    }
+
+    pub fn save_headers(
         &mut self,
         secrets: &dyn SecretStore,
+        domain_id: &str,
         collection_id: &str,
-        request_id: &str,
         name: String,
-        request: &HttpRequest,
-    ) -> Result<RequestSummary, Error> {
-        let name = request_name(&name);
-        let sealed = seal_request(request, secrets)?;
+        headers: &[crate::http::HeaderEntry],
+    ) -> Result<HeaderSummary, Error> {
+        let name = require_name(&name, "header name")?;
+        let sealed = secrets::seal_headers(headers, secrets)?;
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let saved = SavedHeaderSet {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            headers: sealed,
+            created_at_ms: now_ms(),
+            updated_at_ms: now_ms(),
+        };
+        let summary = saved.summary();
+        collection.headers.push(saved);
+        self.commit(doc)?;
+        Ok(summary)
+    }
+
+    pub fn rename_headers(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        header_id: &str,
+        name: String,
+    ) -> Result<(), Error> {
+        let name = require_name(&name, "header name")?;
+        let mut doc = self.doc.clone();
+        let saved = find_headers_mut(&mut doc, domain_id, collection_id, header_id)?;
+        saved.name = name;
+        saved.updated_at_ms = now_ms();
+        self.commit(doc)
+    }
+
+    pub fn update_headers(
+        &mut self,
+        secrets: &dyn SecretStore,
+        domain_id: &str,
+        collection_id: &str,
+        header_id: &str,
+        name: String,
+        headers: &[crate::http::HeaderEntry],
+    ) -> Result<HeaderSummary, Error> {
+        let name = require_name(&name, "header name")?;
+        let sealed = secrets::seal_headers(headers, secrets)?;
         let mut doc = self.doc.clone();
         let previous = {
-            let collection = find_collection_mut(&mut doc, collection_id)?;
-            let saved = find_request_mut(collection, request_id)?;
-            let previous = saved.request.clone();
+            let saved = find_headers_mut(&mut doc, domain_id, collection_id, header_id)?;
+            let previous = saved.headers.clone();
             saved.name = name;
-            saved.request = sealed.clone();
+            saved.headers = sealed.clone();
             saved.updated_at_ms = now_ms();
             previous
         };
-        let summary = doc
-            .collections
-            .iter()
-            .find(|collection| collection.id == collection_id)
-            .and_then(|collection| collection.requests.iter().find(|saved| saved.id == request_id))
-            .map(SavedRequest::summary)
-            .ok_or_else(|| Error::NotFound(format!("request {request_id}")))?;
+        let summary = header_summary(&doc, domain_id, collection_id, header_id)?;
         self.commit(doc)?;
-        forget_refs(secrets, &previous, &sealed);
+        secrets::forget_header_refs(secrets, &previous, &sealed);
         Ok(summary)
     }
 
-    pub fn delete_request(
+    pub fn delete_headers(
         &mut self,
         secrets: &dyn SecretStore,
+        domain_id: &str,
         collection_id: &str,
-        request_id: &str,
+        header_id: &str,
     ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
-        let collection = find_collection_mut(&mut doc, collection_id)?;
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
         let index = collection
-            .requests
+            .headers
             .iter()
-            .position(|saved| saved.id == request_id)
-            .ok_or_else(|| Error::NotFound(format!("request {request_id}")))?;
-        let removed = collection.requests.remove(index);
-        let refs = secrets::refs_of(&removed.request);
+            .position(|saved| saved.id == header_id)
+            .ok_or_else(|| Error::NotFound(format!("headers {header_id}")))?;
+        let removed = collection.headers.remove(index);
+        let refs = secrets::header_refs(&removed.headers);
         self.commit(doc)?;
         secrets::delete_refs(secrets, &refs);
         Ok(())
     }
 
-    pub fn load_request(
+    pub fn load_headers(
         &self,
         secrets: &dyn SecretStore,
+        domain_id: &str,
         collection_id: &str,
-        request_id: &str,
-    ) -> Result<LoadedRequest, Error> {
+        header_id: &str,
+    ) -> Result<LoadedHeaders, Error> {
         self.ensure_readable()?;
-        let collection = self
-            .doc
+        let saved = self
+            .collection(domain_id, collection_id)?
+            .headers
+            .iter()
+            .find(|saved| saved.id == header_id)
+            .ok_or_else(|| Error::NotFound(format!("headers {header_id}")))?;
+        Ok(LoadedHeaders {
+            id: saved.id.clone(),
+            domain_id: domain_id.to_string(),
+            collection_id: collection_id.to_string(),
+            name: saved.name.clone(),
+            headers: secrets::unseal_headers(&saved.headers, secrets)?,
+        })
+    }
+
+    pub fn save_body(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        name: String,
+        body: crate::http::RequestBody,
+    ) -> Result<BodySummary, Error> {
+        let name = require_name(&name, "body name")?;
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let saved = SavedBody {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            body,
+            created_at_ms: now_ms(),
+            updated_at_ms: now_ms(),
+        };
+        let summary = saved.summary();
+        collection.bodies.push(saved);
+        self.commit(doc)?;
+        Ok(summary)
+    }
+
+    pub fn rename_body(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        body_id: &str,
+        name: String,
+    ) -> Result<(), Error> {
+        let name = require_name(&name, "body name")?;
+        let mut doc = self.doc.clone();
+        let saved = find_body_mut(&mut doc, domain_id, collection_id, body_id)?;
+        saved.name = name;
+        saved.updated_at_ms = now_ms();
+        self.commit(doc)
+    }
+
+    pub fn update_body(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        body_id: &str,
+        name: String,
+        body: crate::http::RequestBody,
+    ) -> Result<BodySummary, Error> {
+        let name = require_name(&name, "body name")?;
+        let mut doc = self.doc.clone();
+        let saved = find_body_mut(&mut doc, domain_id, collection_id, body_id)?;
+        saved.name = name;
+        saved.body = body;
+        saved.updated_at_ms = now_ms();
+        let summary = saved.summary();
+        self.commit(doc)?;
+        Ok(summary)
+    }
+
+    pub fn delete_body(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        body_id: &str,
+    ) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let index = collection
+            .bodies
+            .iter()
+            .position(|saved| saved.id == body_id)
+            .ok_or_else(|| Error::NotFound(format!("body {body_id}")))?;
+        collection.bodies.remove(index);
+        self.commit(doc)
+    }
+
+    pub fn load_body(
+        &self,
+        domain_id: &str,
+        collection_id: &str,
+        body_id: &str,
+    ) -> Result<LoadedBody, Error> {
+        self.ensure_readable()?;
+        let saved = self
+            .collection(domain_id, collection_id)?
+            .bodies
+            .iter()
+            .find(|saved| saved.id == body_id)
+            .ok_or_else(|| Error::NotFound(format!("body {body_id}")))?;
+        Ok(LoadedBody {
+            id: saved.id.clone(),
+            domain_id: domain_id.to_string(),
+            collection_id: collection_id.to_string(),
+            name: saved.name.clone(),
+            body: saved.body.clone(),
+        })
+    }
+
+    fn collection(&self, domain_id: &str, collection_id: &str) -> Result<&Collection, Error> {
+        self.doc
+            .domains
+            .iter()
+            .find(|domain| domain.id == domain_id)
+            .ok_or_else(|| Error::NotFound(format!("domain {domain_id}")))?
             .collections
             .iter()
             .find(|collection| collection.id == collection_id)
-            .ok_or_else(|| Error::NotFound(format!("collection {collection_id}")))?;
-        let saved = collection
-            .requests
-            .iter()
-            .find(|saved| saved.id == request_id)
-            .ok_or_else(|| Error::NotFound(format!("request {request_id}")))?;
-        Ok(LoadedRequest {
-            id: saved.id.clone(),
-            collection_id: collection.id.clone(),
-            name: saved.name.clone(),
-            request: unseal_request(&saved.request, secrets)?,
-        })
+            .ok_or_else(|| Error::NotFound(format!("collection {collection_id}")))
     }
 
     pub fn record_history(&mut self, request: &HttpRequest, mut outcome: HistoryOutcome) -> Result<(), Error> {
@@ -317,31 +533,174 @@ fn require_name(name: &str, label: &str) -> Result<String, Error> {
     Ok(trimmed.to_string())
 }
 
-fn request_name(name: &str) -> String {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        "Untitled".to_string()
+fn read_document(text: &str) -> Result<(Document, bool), serde_json::Error> {
+    let value: serde_json::Value = serde_json::from_str(text)?;
+    let version = value.get("version").and_then(serde_json::Value::as_u64).unwrap_or(1);
+    if version < 2 {
+        let legacy: LegacyDocument = serde_json::from_value(value)?;
+        return Ok((migrate_legacy(legacy), true));
+    }
+    Ok((serde_json::from_value(value)?, false))
+}
+
+fn migrate_legacy(legacy: LegacyDocument) -> Document {
+    let collections = legacy
+        .collections
+        .into_iter()
+        .map(|collection| {
+            let mut headers = Vec::new();
+            let mut bodies = Vec::new();
+            for saved in collection.requests {
+                headers.push(SavedHeaderSet {
+                    id: saved.id.clone(),
+                    name: saved.name.clone(),
+                    headers: saved.request.headers,
+                    created_at_ms: saved.created_at_ms,
+                    updated_at_ms: saved.updated_at_ms,
+                });
+                bodies.push(SavedBody {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name: saved.name,
+                    body: saved.request.body,
+                    created_at_ms: saved.created_at_ms,
+                    updated_at_ms: saved.updated_at_ms,
+                });
+            }
+            Collection {
+                id: collection.id,
+                name: collection.name,
+                paths: Vec::new(),
+                headers,
+                bodies,
+            }
+        })
+        .collect::<Vec<_>>();
+    let domains = if collections.is_empty() {
+        Vec::new()
     } else {
-        trimmed.to_string()
+        vec![Domain {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Imported".into(),
+            collections,
+        }]
+    };
+    Document {
+        version: 2,
+        domains,
+        history: legacy.history,
+        benchmarks: legacy.benchmarks,
     }
 }
 
-fn find_collection_mut<'a>(doc: &'a mut Document, id: &str) -> Result<&'a mut Collection, Error> {
-    doc.collections
+fn find_domain_mut<'a>(doc: &'a mut Document, id: &str) -> Result<&'a mut Domain, Error> {
+    doc.domains
+        .iter_mut()
+        .find(|domain| domain.id == id)
+        .ok_or_else(|| Error::NotFound(format!("domain {id}")))
+}
+
+fn find_collection_mut<'a>(
+    doc: &'a mut Document,
+    domain_id: &str,
+    id: &str,
+) -> Result<&'a mut Collection, Error> {
+    find_domain_mut(doc, domain_id)?
+        .collections
         .iter_mut()
         .find(|collection| collection.id == id)
         .ok_or_else(|| Error::NotFound(format!("collection {id}")))
 }
 
-fn find_request_mut<'a>(
-    collection: &'a mut Collection,
-    id: &str,
-) -> Result<&'a mut SavedRequest, Error> {
-    collection
-        .requests
+fn normalize_path(raw: &str) -> Result<String, Error> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidConfig("path cannot be empty".into()));
+    }
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else if trimmed.starts_with('/') {
+        format!("http://placeholder.invalid{trimmed}")
+    } else {
+        format!("http://placeholder.invalid/{trimmed}")
+    };
+    let parsed = url::Url::parse(&candidate)
+        .map_err(|_| Error::InvalidConfig("path is not valid".into()))?;
+    let path = parsed.path();
+    if path.is_empty() {
+        Ok("/".to_string())
+    } else {
+        Ok(path.to_string())
+    }
+}
+
+fn find_path_mut<'a>(
+    doc: &'a mut Document,
+    domain_id: &str,
+    collection_id: &str,
+    path_id: &str,
+) -> Result<&'a mut SavedPath, Error> {
+    find_collection_mut(doc, domain_id, collection_id)?
+        .paths
         .iter_mut()
-        .find(|saved| saved.id == id)
-        .ok_or_else(|| Error::NotFound(format!("request {id}")))
+        .find(|saved| saved.id == path_id)
+        .ok_or_else(|| Error::NotFound(format!("path {path_id}")))
+}
+
+fn find_headers_mut<'a>(
+    doc: &'a mut Document,
+    domain_id: &str,
+    collection_id: &str,
+    header_id: &str,
+) -> Result<&'a mut SavedHeaderSet, Error> {
+    find_collection_mut(doc, domain_id, collection_id)?
+        .headers
+        .iter_mut()
+        .find(|saved| saved.id == header_id)
+        .ok_or_else(|| Error::NotFound(format!("headers {header_id}")))
+}
+
+fn find_body_mut<'a>(
+    doc: &'a mut Document,
+    domain_id: &str,
+    collection_id: &str,
+    body_id: &str,
+) -> Result<&'a mut SavedBody, Error> {
+    find_collection_mut(doc, domain_id, collection_id)?
+        .bodies
+        .iter_mut()
+        .find(|saved| saved.id == body_id)
+        .ok_or_else(|| Error::NotFound(format!("body {body_id}")))
+}
+
+fn header_summary(
+    doc: &Document,
+    domain_id: &str,
+    collection_id: &str,
+    header_id: &str,
+) -> Result<HeaderSummary, Error> {
+    doc.domains
+        .iter()
+        .find(|domain| domain.id == domain_id)
+        .and_then(|domain| domain.collections.iter().find(|collection| collection.id == collection_id))
+        .and_then(|collection| collection.headers.iter().find(|saved| saved.id == header_id))
+        .map(SavedHeaderSet::summary)
+        .ok_or_else(|| Error::NotFound(format!("headers {header_id}")))
+}
+
+fn header_refs_in(domain: &Domain) -> Vec<String> {
+    domain
+        .collections
+        .iter()
+        .flat_map(header_refs_in_collection)
+        .collect()
+}
+
+fn header_refs_in_collection(collection: &Collection) -> Vec<String> {
+    collection
+        .headers
+        .iter()
+        .flat_map(|saved| secrets::header_refs(&saved.headers))
+        .collect()
 }
 
 #[cfg(test)]
@@ -382,10 +741,20 @@ mod tests {
         let path = dir.path().join("store.json");
         let secrets = MemorySecretStore::default();
         let mut store = Store::open(path.clone());
-        let collection = store.create_collection("Auth".into()).unwrap();
+        let domain = store.create_domain("Local".into()).unwrap();
+        let collection = store.create_collection(&domain.id, "Auth".into()).unwrap();
         let marker = fixture_marker();
+        let request = sample();
         let summary = store
-            .save_request(&secrets, &collection.id, "Login".into(), &sample())
+            .save_headers(&secrets, &domain.id, &collection.id, "Login".into(), &request.headers)
+            .unwrap();
+        store
+            .save_body(
+                &domain.id,
+                &collection.id,
+                "Login".into(),
+                request.body.clone(),
+            )
             .unwrap();
         store
             .record_history(
@@ -404,20 +773,97 @@ mod tests {
         assert!(on_disk.contains("***") || on_disk.contains("secretRef") || on_disk.contains("secret_ref"));
 
         let loaded = store
-            .load_request(&secrets, &collection.id, &summary.id)
+            .load_headers(&secrets, &domain.id, &collection.id, &summary.id)
             .unwrap();
-        assert!(loaded.request.headers[0].value.contains(&marker));
-        assert_eq!(loaded.request.query[0].value, marker);
-        let restored = url::Url::parse(&loaded.request.url).unwrap();
-        assert_eq!(restored.password(), Some(marker.as_str()));
-        assert!(restored
-            .query_pairs()
-            .any(|(key, value)| key == "api_key" && value == marker));
+        assert!(loaded.headers[0].value.contains(&marker));
 
         let history = store.list_history();
         let rendered = serde_json::to_string(&history).unwrap();
         assert!(!rendered.contains(&marker));
         assert!(rendered.contains("***"));
+    }
+
+    #[test]
+    fn version_one_collections_move_under_an_imported_domain() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        let legacy = r#"{
+          "version": 1,
+          "collections": [{
+            "id": "col-1",
+            "name": "Auth",
+            "requests": [{
+              "id": "req-1",
+              "name": "Login",
+              "createdAtMs": 10,
+              "updatedAtMs": 20,
+              "request": {
+                "method": "POST",
+                "url": "http://127.0.0.1/login",
+                "headers": [{"name": "Accept", "value": "application/json", "enabled": true, "secret": false}],
+                "query": [{"name": "page", "value": "1", "enabled": true, "secret": false}],
+                "body": {"kind": "json", "value": "{\"ok\":true}"},
+                "timeoutMs": 1000
+              }
+            }]
+          }],
+          "history": [],
+          "benchmarks": []
+        }"#;
+        fs::write(&path, legacy).unwrap();
+        let store = Store::open(path.clone());
+        assert!(store.status().ok);
+        let domains = store.list_domains();
+        assert_eq!(domains.len(), 1);
+        assert_eq!(domains[0].name, "Imported");
+        let collection = &domains[0].collections[0];
+        assert_eq!(collection.name, "Auth");
+        assert_eq!(collection.headers[0].name, "Login");
+        assert_eq!(collection.bodies[0].name, "Login");
+        assert_eq!(collection.bodies[0].kind, "json");
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("\"version\": 2"));
+        assert!(!on_disk.contains("/login"));
+        assert!(!on_disk.contains("\"page\""));
+        let again = Store::open(path);
+        assert_eq!(again.list_domains().len(), 1);
+    }
+
+    #[test]
+    fn saved_paths_keep_the_pathname_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        let mut store = Store::open(path);
+        let domain = store.create_domain("Local".into()).unwrap();
+        let collection = store.create_collection(&domain.id, "Api".into()).unwrap();
+        let saved = store
+            .save_path(&domain.id, &collection.id, Method::Get, "v1/users".into())
+            .unwrap();
+        assert_eq!(saved.method, Method::Get);
+        assert_eq!(saved.path, "/v1/users");
+        let pasted = store
+            .save_path(
+                &domain.id,
+                &collection.id,
+                Method::Post,
+                "https://example.com/v1/items?x=1".into(),
+            )
+            .unwrap();
+        assert_eq!(pasted.path, "/v1/items");
+        assert!(store
+            .save_path(&domain.id, &collection.id, Method::Get, "  ".into())
+            .is_err());
+        let updated = store
+            .update_path(
+                &domain.id,
+                &collection.id,
+                &saved.id,
+                Method::Delete,
+                "/v1/users/1".into(),
+            )
+            .unwrap();
+        assert_eq!(updated.method, Method::Delete);
+        assert_eq!(updated.path, "/v1/users/1");
     }
 
     /// Built from plain fragments so the test source never contains a credential literal.

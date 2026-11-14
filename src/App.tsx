@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 
-import { Sidebar } from "./features/collections/Sidebar";
 import { BenchmarkPane } from "./features/benchmark/BenchmarkPane";
+import { BodiesColumn, CollectionsColumn, DomainsColumn, HeadersColumn, HistoryColumn, PathsColumn } from "./features/library/Columns";
 import { RequestPane } from "./features/request/RequestPane";
+import { ResponseView } from "./features/request/ResponseView";
 import { useLab } from "./state/lab";
 import "./styles.css";
 
@@ -47,8 +48,22 @@ function App() {
         </div>
       ) : null}
       <div className="workspace">
-        <Sidebar />
-        <main>{state.mode === "request" ? <RequestPane /> : <BenchmarkPane />}</main>
+        {state.mode === "request" ? (
+          <div
+            className={`request-workspace${state.domainsCollapsed ? " domains-collapsed" : ""}${state.collectionsCollapsed ? " collections-collapsed" : ""}${state.pathsCollapsed ? " paths-collapsed" : ""}${state.headersCollapsed ? " headers-collapsed" : ""}${state.bodiesCollapsed ? " bodies-collapsed" : ""}`}
+          >
+            <DomainsColumn />
+            <CollectionsColumn />
+            <PathsColumn />
+            <HeadersColumn />
+            <BodiesColumn />
+            <RequestPane />
+            <ResponseView response={state.response} error={state.requestError} sending={state.sending} />
+            <HistoryColumn />
+          </div>
+        ) : (
+          <BenchmarkPane />
+        )}
       </div>
     </div>
   );

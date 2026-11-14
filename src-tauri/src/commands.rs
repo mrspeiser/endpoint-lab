@@ -1,9 +1,10 @@
 use tauri::{ipc::Channel, State};
 
 use endpoint_lab_core::{
-    run_benchmark as execute_benchmark, BenchConfig, BenchSnapshot, BenchSummary, CancellationToken,
-    CollectionSummary, EngineLimits, Error, ErrorView, HistoryEntry, HistoryOutcome, HttpRequest,
-    HttpResponse, LoadedRequest, RequestSummary, StoreStatus,
+    run_benchmark as execute_benchmark, BenchConfig, BenchSnapshot, BenchSummary, BodySummary,
+    CancellationToken, CollectionSummary, DomainSummary, EngineLimits, Error, ErrorView, HeaderEntry,
+    HeaderSummary, HistoryEntry, HistoryOutcome, HttpRequest, HttpResponse, LoadedBody, LoadedHeaders,
+    Method, PathSummary, RequestBody, StoreStatus,
 };
 
 use crate::state::{lock, AppState, BenchGuard, InflightGuard};
@@ -58,86 +59,240 @@ pub fn cancel_request(state: State<'_, AppState>, invocation_id: String) -> Resu
 }
 
 #[tauri::command]
-pub fn list_collections(state: State<'_, AppState>) -> Result<Vec<CollectionSummary>, ErrorView> {
-    Ok(lock(&state.store).list_collections())
+pub fn list_domains(state: State<'_, AppState>) -> Result<Vec<DomainSummary>, ErrorView> {
+    Ok(lock(&state.store).list_domains())
 }
 
 #[tauri::command]
-pub fn create_collection(state: State<'_, AppState>, name: String) -> Result<CollectionSummary, ErrorView> {
+pub fn create_domain(state: State<'_, AppState>, name: String) -> Result<DomainSummary, ErrorView> {
+    lock(&state.store).create_domain(name).map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn rename_domain(state: State<'_, AppState>, id: String, name: String) -> Result<(), ErrorView> {
     lock(&state.store)
-        .create_collection(name)
+        .rename_domain(&id, name)
         .map_err(Error::view)
 }
 
 #[tauri::command]
-pub fn rename_collection(state: State<'_, AppState>, id: String, name: String) -> Result<(), ErrorView> {
-    lock(&state.store)
-        .rename_collection(&id, name)
-        .map_err(Error::view)
-}
-
-#[tauri::command]
-pub fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), ErrorView> {
+pub fn delete_domain(state: State<'_, AppState>, id: String) -> Result<(), ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
-        .delete_collection(&id, secrets.as_ref())
+        .delete_domain(&id, secrets.as_ref())
         .map_err(Error::view)
 }
 
 #[tauri::command]
-pub fn save_request(
+pub fn create_collection(
     state: State<'_, AppState>,
+    domain_id: String,
+    name: String,
+) -> Result<CollectionSummary, ErrorView> {
+    lock(&state.store)
+        .create_collection(&domain_id, name)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn rename_collection(
+    state: State<'_, AppState>,
+    domain_id: String,
+    id: String,
+    name: String,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .rename_collection(&domain_id, &id, name)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn delete_collection(
+    state: State<'_, AppState>,
+    domain_id: String,
+    id: String,
+) -> Result<(), ErrorView> {
+    let secrets = state.secrets.clone();
+    lock(&state.store)
+        .delete_collection(&domain_id, &id, secrets.as_ref())
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn save_headers(
+    state: State<'_, AppState>,
+    domain_id: String,
     collection_id: String,
     name: String,
-    request: HttpRequest,
-) -> Result<RequestSummary, ErrorView> {
+    headers: Vec<HeaderEntry>,
+) -> Result<HeaderSummary, ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
-        .save_request(secrets.as_ref(), &collection_id, name, &request)
+        .save_headers(secrets.as_ref(), &domain_id, &collection_id, name, &headers)
         .map_err(Error::view)
 }
 
 #[tauri::command]
-pub fn update_request(
+pub fn rename_headers(
     state: State<'_, AppState>,
+    domain_id: String,
     collection_id: String,
-    request_id: String,
+    header_id: String,
     name: String,
-    request: HttpRequest,
-) -> Result<RequestSummary, ErrorView> {
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .rename_headers(&domain_id, &collection_id, &header_id, name)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn update_headers(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    header_id: String,
+    name: String,
+    headers: Vec<HeaderEntry>,
+) -> Result<HeaderSummary, ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
-        .update_request(
+        .update_headers(
             secrets.as_ref(),
+            &domain_id,
             &collection_id,
-            &request_id,
+            &header_id,
             name,
-            &request,
+            &headers,
         )
         .map_err(Error::view)
 }
 
 #[tauri::command]
-pub fn delete_request(
+pub fn delete_headers(
     state: State<'_, AppState>,
+    domain_id: String,
     collection_id: String,
-    request_id: String,
+    header_id: String,
 ) -> Result<(), ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
-        .delete_request(secrets.as_ref(), &collection_id, &request_id)
+        .delete_headers(secrets.as_ref(), &domain_id, &collection_id, &header_id)
         .map_err(Error::view)
 }
 
 #[tauri::command]
-pub fn load_request(
+pub fn load_headers(
     state: State<'_, AppState>,
+    domain_id: String,
     collection_id: String,
-    request_id: String,
-) -> Result<LoadedRequest, ErrorView> {
+    header_id: String,
+) -> Result<LoadedHeaders, ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
-        .load_request(secrets.as_ref(), &collection_id, &request_id)
+        .load_headers(secrets.as_ref(), &domain_id, &collection_id, &header_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn save_path(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    method: Method,
+    path: String,
+) -> Result<PathSummary, ErrorView> {
+    lock(&state.store)
+        .save_path(&domain_id, &collection_id, method, path)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn update_path(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    path_id: String,
+    method: Method,
+    path: String,
+) -> Result<PathSummary, ErrorView> {
+    lock(&state.store)
+        .update_path(&domain_id, &collection_id, &path_id, method, path)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn delete_path(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    path_id: String,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .delete_path(&domain_id, &collection_id, &path_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn save_body(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    name: String,
+    body: RequestBody,
+) -> Result<BodySummary, ErrorView> {
+    lock(&state.store)
+        .save_body(&domain_id, &collection_id, name, body)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn rename_body(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    body_id: String,
+    name: String,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .rename_body(&domain_id, &collection_id, &body_id, name)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn update_body(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    body_id: String,
+    name: String,
+    body: RequestBody,
+) -> Result<BodySummary, ErrorView> {
+    lock(&state.store)
+        .update_body(&domain_id, &collection_id, &body_id, name, body)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn delete_body(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    body_id: String,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .delete_body(&domain_id, &collection_id, &body_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn load_body(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    body_id: String,
+) -> Result<LoadedBody, ErrorView> {
+    lock(&state.store)
+        .load_body(&domain_id, &collection_id, &body_id)
         .map_err(Error::view)
 }
 

@@ -10,21 +10,21 @@ interface ResponseViewProps {
 export function ResponseView({ response, error, sending }: ResponseViewProps) {
   if (sending && !response) {
     return (
-      <section className="response">
+      <section className="column response">
         <p className="waiting">Waiting for the response…</p>
       </section>
     );
   }
   if (!response && !error) {
     return (
-      <section className="response empty-state">
+      <section className="column response empty-state">
         <h2>Response</h2>
         <p>Send a request to inspect status, timing, headers, and body.</p>
       </section>
     );
   }
   return (
-    <section className="response">
+    <section className="column response">
       {error ? (
         <div className="banner bad" role="alert">
           <strong>{error.code}</strong>

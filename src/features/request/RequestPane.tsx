@@ -4,7 +4,6 @@ import { previewUrl } from "../../lib/format";
 import { useLab } from "../../state/lab";
 import type { Method, RequestBody } from "../../types";
 import { KeyValueTable } from "./KeyValueTable";
-import { ResponseView } from "./ResponseView";
 
 const METHODS: Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 type Tab = "query" | "headers" | "body" | "timeout";
@@ -18,8 +17,7 @@ export function RequestPane() {
   const setBody = (body: RequestBody) => dispatch({ type: "request", request: { ...request, body } });
 
   return (
-    <div className="request-layout">
-      <section className="editor">
+      <section className="column editor">
         <div className="url-row">
           <select
             className={`method method-${request.method.toLowerCase()}`}
@@ -135,7 +133,5 @@ export function RequestPane() {
           </label>
         ) : null}
       </section>
-      <ResponseView response={state.response} error={state.requestError} sending={state.sending} />
-    </div>
   );
 }

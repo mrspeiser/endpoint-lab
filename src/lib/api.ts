@@ -4,14 +4,21 @@ import type {
   BenchConfig,
   BenchSnapshot,
   BenchSummary,
+  BodySummary,
   CollectionSummary,
+  DomainSummary,
   EngineLimits,
   ErrorView,
+  HeaderEntry,
+  HeaderSummary,
   HistoryEntry,
   HttpRequest,
   HttpResponse,
-  LoadedRequest,
-  RequestSummary,
+  LoadedBody,
+  LoadedHeaders,
+  Method,
+  PathSummary,
+  RequestBody,
   StoreStatus,
 } from "../types";
 import { FALLBACK_LIMITS } from "../types";
@@ -69,45 +76,131 @@ export function cancelRequest(invocationId: string): Promise<void> {
   return call("cancel_request", { invocationId });
 }
 
-export function listCollections(): Promise<CollectionSummary[]> {
-  return call("list_collections");
+export function listDomains(): Promise<DomainSummary[]> {
+  return call("list_domains");
 }
 
-export function createCollection(name: string): Promise<CollectionSummary> {
-  return call("create_collection", { name });
+export function createDomain(name: string): Promise<DomainSummary> {
+  return call("create_domain", { name });
 }
 
-export function renameCollection(id: string, name: string): Promise<void> {
-  return call("rename_collection", { id, name });
+export function renameDomain(id: string, name: string): Promise<void> {
+  return call("rename_domain", { id, name });
 }
 
-export function deleteCollection(id: string): Promise<void> {
-  return call("delete_collection", { id });
+export function deleteDomain(id: string): Promise<void> {
+  return call("delete_domain", { id });
 }
 
-export function saveRequest(
+export function createCollection(domainId: string, name: string): Promise<CollectionSummary> {
+  return call("create_collection", { domainId, name });
+}
+
+export function renameCollection(domainId: string, id: string, name: string): Promise<void> {
+  return call("rename_collection", { domainId, id, name });
+}
+
+export function deleteCollection(domainId: string, id: string): Promise<void> {
+  return call("delete_collection", { domainId, id });
+}
+
+export function saveHeaders(
+  domainId: string,
   collectionId: string,
   name: string,
-  request: HttpRequest,
-): Promise<RequestSummary> {
-  return call("save_request", { collectionId, name, request });
+  headers: HeaderEntry[],
+): Promise<HeaderSummary> {
+  return call("save_headers", { domainId, collectionId, name, headers });
 }
 
-export function updateRequest(
+export function renameHeaders(
+  domainId: string,
   collectionId: string,
-  requestId: string,
+  headerId: string,
   name: string,
-  request: HttpRequest,
-): Promise<RequestSummary> {
-  return call("update_request", { collectionId, requestId, name, request });
+): Promise<void> {
+  return call("rename_headers", { domainId, collectionId, headerId, name });
 }
 
-export function deleteRequest(collectionId: string, requestId: string): Promise<void> {
-  return call("delete_request", { collectionId, requestId });
+export function updateHeaders(
+  domainId: string,
+  collectionId: string,
+  headerId: string,
+  name: string,
+  headers: HeaderEntry[],
+): Promise<HeaderSummary> {
+  return call("update_headers", { domainId, collectionId, headerId, name, headers });
 }
 
-export function loadRequest(collectionId: string, requestId: string): Promise<LoadedRequest> {
-  return call("load_request", { collectionId, requestId });
+export function deleteHeaders(domainId: string, collectionId: string, headerId: string): Promise<void> {
+  return call("delete_headers", { domainId, collectionId, headerId });
+}
+
+export function loadHeaders(
+  domainId: string,
+  collectionId: string,
+  headerId: string,
+): Promise<LoadedHeaders> {
+  return call("load_headers", { domainId, collectionId, headerId });
+}
+
+export function savePath(
+  domainId: string,
+  collectionId: string,
+  method: Method,
+  path: string,
+): Promise<PathSummary> {
+  return call("save_path", { domainId, collectionId, method, path });
+}
+
+export function updatePath(
+  domainId: string,
+  collectionId: string,
+  pathId: string,
+  method: Method,
+  path: string,
+): Promise<PathSummary> {
+  return call("update_path", { domainId, collectionId, pathId, method, path });
+}
+
+export function deletePath(domainId: string, collectionId: string, pathId: string): Promise<void> {
+  return call("delete_path", { domainId, collectionId, pathId });
+}
+
+export function saveBody(
+  domainId: string,
+  collectionId: string,
+  name: string,
+  body: RequestBody,
+): Promise<BodySummary> {
+  return call("save_body", { domainId, collectionId, name, body });
+}
+
+export function renameBody(
+  domainId: string,
+  collectionId: string,
+  bodyId: string,
+  name: string,
+): Promise<void> {
+  return call("rename_body", { domainId, collectionId, bodyId, name });
+}
+
+export function updateBody(
+  domainId: string,
+  collectionId: string,
+  bodyId: string,
+  name: string,
+  body: RequestBody,
+): Promise<BodySummary> {
+  return call("update_body", { domainId, collectionId, bodyId, name, body });
+}
+
+export function deleteBody(domainId: string, collectionId: string, bodyId: string): Promise<void> {
+  return call("delete_body", { domainId, collectionId, bodyId });
+}
+
+export function loadBody(domainId: string, collectionId: string, bodyId: string): Promise<LoadedBody> {
+  return call("load_body", { domainId, collectionId, bodyId });
 }
 
 export function listHistory(): Promise<HistoryEntry[]> {

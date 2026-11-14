@@ -13,12 +13,15 @@ import * as api from "../lib/api";
 import type {
   BenchSnapshot,
   BenchSummary,
-  CollectionSummary,
+  DomainSummary,
   EngineLimits,
   ErrorView,
+  HeaderEntry,
   HistoryEntry,
   HttpRequest,
   HttpResponse,
+  Method,
+  RequestBody,
   StoreStatus,
 } from "../types";
 import { emptyRequest, FALLBACK_LIMITS } from "../types";
@@ -39,15 +42,23 @@ export interface BenchForm {
 
 export interface LabState {
   mode: "request" | "benchmark";
-  name: string;
   request: HttpRequest;
-  saved?: { collectionId: string; requestId: string };
   sending: boolean;
   invocationId: string | null;
   response: HttpResponse | null;
   requestError: ErrorView | null;
   notice: string | null;
-  collections: CollectionSummary[];
+  domains: DomainSummary[];
+  selectedDomainId: string | null;
+  selectedCollectionId: string | null;
+  selectedPathId: string | null;
+  selectedHeaderId: string | null;
+  selectedBodyId: string | null;
+  domainsCollapsed: boolean;
+  collectionsCollapsed: boolean;
+  pathsCollapsed: boolean;
+  headersCollapsed: boolean;
+  bodiesCollapsed: boolean;
   history: HistoryEntry[];
   runs: BenchSummary[];
   storeStatus: StoreStatus | null;
@@ -59,13 +70,20 @@ export interface LabState {
 
 type Action =
   | { type: "mode"; mode: LabState["mode"] }
-  | { type: "name"; name: string }
   | { type: "request"; request: HttpRequest }
-  | { type: "replace"; name: string; request: HttpRequest; saved?: LabState["saved"]; notice: string | null }
+  | { type: "replace"; request: HttpRequest; notice: string | null }
+  | { type: "applyHeaders"; headers: HeaderEntry[]; headerId: string }
+  | { type: "applyBody"; body: RequestBody; bodyId: string }
+  | { type: "applyPath"; method: Method; url: string; pathId: string }
+  | { type: "selectHeader"; id: string }
+  | { type: "selectBody"; id: string }
+  | { type: "selectDomain"; id: string | null }
+  | { type: "selectCollection"; id: string | null }
+  | { type: "collapse"; domains?: boolean; collections?: boolean; paths?: boolean; headers?: boolean; bodies?: boolean }
   | { type: "sending"; sending: boolean; invocationId: string | null }
   | { type: "response"; response: HttpResponse | null; error: ErrorView | null }
   | { type: "notice"; notice: string | null }
-  | { type: "library"; collections: CollectionSummary[]; history: HistoryEntry[]; runs: BenchSummary[]; storeStatus: StoreStatus | null }
+  | { type: "library"; domains: DomainSummary[]; history: HistoryEntry[]; runs: BenchSummary[]; storeStatus: StoreStatus | null }
   | { type: "limits"; limits: EngineLimits }
   | { type: "bench"; bench: Partial<BenchForm> }
   | { type: "progress"; snapshot: BenchSnapshot }
@@ -87,14 +105,23 @@ const initialBench: BenchForm = {
 
 const initialState: LabState = {
   mode: "request",
-  name: "Untitled",
   request: emptyRequest(),
   sending: false,
   invocationId: null,
   response: null,
   requestError: null,
   notice: null,
-  collections: [],
+  domains: [],
+  selectedDomainId: null,
+  selectedCollectionId: null,
+  selectedPathId: null,
+  selectedHeaderId: null,
+  selectedBodyId: null,
+  domainsCollapsed: false,
+  collectionsCollapsed: false,
+  pathsCollapsed: false,
+  headersCollapsed: false,
+  bodiesCollapsed: false,
   history: [],
   runs: [],
   storeStatus: null,
@@ -108,19 +135,68 @@ function reduce(state: LabState, action: Action): LabState {
   switch (action.type) {
     case "mode":
       return { ...state, mode: action.mode };
-    case "name":
-      return { ...state, name: action.name };
     case "request":
       return { ...state, request: action.request };
     case "replace":
       return {
         ...state,
-        name: action.name,
         request: action.request,
-        saved: action.saved,
         notice: action.notice,
         response: null,
         requestError: null,
+        selectedPathId: null,
+        selectedHeaderId: null,
+        selectedBodyId: null,
+      };
+    case "applyHeaders":
+      return {
+        ...state,
+        request: { ...state.request, headers: action.headers },
+        selectedHeaderId: action.headerId,
+      };
+    case "applyBody":
+      return {
+        ...state,
+        request: { ...state.request, body: action.body },
+        selectedBodyId: action.bodyId,
+      };
+    case "applyPath":
+      return {
+        ...state,
+        request: { ...state.request, method: action.method, url: action.url },
+        selectedPathId: action.pathId,
+      };
+    case "selectHeader":
+      return { ...state, selectedHeaderId: action.id };
+    case "selectBody":
+      return { ...state, selectedBodyId: action.id };
+    case "selectDomain":
+      return action.id === state.selectedDomainId
+        ? state
+        : {
+            ...state,
+            selectedDomainId: action.id,
+            selectedCollectionId: null,
+            selectedPathId: null,
+            selectedHeaderId: null,
+            selectedBodyId: null,
+          };
+    case "selectCollection":
+      return {
+        ...state,
+        selectedCollectionId: action.id,
+        selectedPathId: null,
+        selectedHeaderId: null,
+        selectedBodyId: null,
+      };
+    case "collapse":
+      return {
+        ...state,
+        domainsCollapsed: action.domains ?? state.domainsCollapsed,
+        collectionsCollapsed: action.collections ?? state.collectionsCollapsed,
+        pathsCollapsed: action.paths ?? state.pathsCollapsed,
+        headersCollapsed: action.headers ?? state.headersCollapsed,
+        bodiesCollapsed: action.bodies ?? state.bodiesCollapsed,
       };
     case "sending":
       return { ...state, sending: action.sending, invocationId: action.invocationId };
@@ -128,14 +204,28 @@ function reduce(state: LabState, action: Action): LabState {
       return { ...state, response: action.response, requestError: action.error, sending: false, invocationId: null };
     case "notice":
       return { ...state, notice: action.notice };
-    case "library":
+    case "library": {
+      const domain = action.domains.find((item) => item.id === state.selectedDomainId);
+      const collection = domain?.collections.find((item) => item.id === state.selectedCollectionId);
       return {
         ...state,
-        collections: action.collections,
+        domains: action.domains,
         history: action.history,
         runs: action.runs,
         storeStatus: action.storeStatus,
+        selectedDomainId: domain ? state.selectedDomainId : null,
+        selectedCollectionId: collection ? state.selectedCollectionId : null,
+        selectedPathId: collection?.paths.some((item) => item.id === state.selectedPathId)
+          ? state.selectedPathId
+          : null,
+        selectedHeaderId: collection?.headers.some((item) => item.id === state.selectedHeaderId)
+          ? state.selectedHeaderId
+          : null,
+        selectedBodyId: collection?.bodies.some((item) => item.id === state.selectedBodyId)
+          ? state.selectedBodyId
+          : null,
       };
+    }
     case "limits":
       return { ...state, limits: action.limits };
     case "bench":
@@ -162,19 +252,38 @@ interface LabApi {
   refresh: () => Promise<void>;
   send: () => Promise<void>;
   cancelSend: () => Promise<void>;
-  createCollection: (name: string) => Promise<void>;
-  renameCollection: (id: string, name: string) => Promise<void>;
-  deleteCollection: (id: string) => Promise<void>;
-  saveNew: (collectionId: string) => Promise<void>;
-  updateSaved: () => Promise<void>;
-  deleteSaved: (collectionId: string, requestId: string) => Promise<void>;
-  openSaved: (collectionId: string, requestId: string) => Promise<void>;
+  createDomain: (name: string) => Promise<void>;
+  renameDomain: (id: string, name: string) => Promise<void>;
+  deleteDomain: (id: string) => Promise<void>;
+  createCollection: (domainId: string, name: string) => Promise<void>;
+  renameCollection: (domainId: string, id: string, name: string) => Promise<void>;
+  deleteCollection: (domainId: string, id: string) => Promise<void>;
+  savePath: (method: Method, path: string) => Promise<void>;
+  updatePath: (pathId: string, method: Method, path: string) => Promise<void>;
+  deletePath: (pathId: string) => Promise<void>;
+  saveHeaders: (name: string, headers?: HeaderEntry[]) => Promise<void>;
+  updateHeaders: (name: string) => Promise<void>;
+  renameHeaders: (headerId: string, name: string) => Promise<void>;
+  deleteHeaders: (headerId: string) => Promise<void>;
+  openHeaders: (headerId: string) => Promise<void>;
+  saveBody: (name: string, body?: RequestBody) => Promise<void>;
+  updateBody: (name: string) => Promise<void>;
+  renameBody: (bodyId: string, name: string) => Promise<void>;
+  deleteBody: (bodyId: string) => Promise<void>;
+  openBody: (bodyId: string) => Promise<void>;
   openHistory: (entry: HistoryEntry) => void;
   runBench: () => Promise<void>;
   cancelBench: () => Promise<void>;
 }
 
 const LabContext = createContext<LabApi | null>(null);
+
+function requireCollection(state: LabState): { domainId: string; collectionId: string } {
+  if (!state.selectedDomainId || !state.selectedCollectionId) {
+    throw { code: "invalid_config", message: "Choose a collection first." };
+  }
+  return { domainId: state.selectedDomainId, collectionId: state.selectedCollectionId };
+}
 
 function withBlankRows(request: HttpRequest): HttpRequest {
   return {
@@ -210,13 +319,13 @@ export function LabProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const [collections, history, runs, storeStatus] = await Promise.all([
-        api.listCollections(),
+      const [domains, history, runs, storeStatus] = await Promise.all([
+        api.listDomains(),
         api.listHistory(),
         api.listBenchmarks(),
         api.loadStoreStatus(),
       ]);
-      dispatch({ type: "library", collections, history, runs, storeStatus });
+      dispatch({ type: "library", domains, history, runs, storeStatus });
     } catch (error) {
       dispatch({ type: "notice", notice: api.asError(error).message });
     }
@@ -249,7 +358,7 @@ export function LabProvider({ children }: { children: ReactNode }) {
           const history = await api.listHistory();
           dispatch({
             type: "library",
-            collections: stateRef.current.collections,
+            domains: stateRef.current.domains,
             history,
             runs: stateRef.current.runs,
             storeStatus: stateRef.current.storeStatus,
@@ -262,81 +371,131 @@ export function LabProvider({ children }: { children: ReactNode }) {
         const id = stateRef.current.invocationId;
         if (id) await api.cancelRequest(id).catch(() => undefined);
       },
-      async createCollection(name: string) {
-        await api.createCollection(name);
+      async createDomain(name: string) {
+        const created = await api.createDomain(name);
+        dispatch({ type: "selectDomain", id: created.id });
         await refresh();
       },
-      async renameCollection(id: string, name: string) {
-        await api.renameCollection(id, name);
+      async renameDomain(id: string, name: string) {
+        await api.renameDomain(id, name);
         await refresh();
       },
-      async deleteCollection(id: string) {
-        await api.deleteCollection(id);
-        const saved = stateRef.current.saved;
-        if (saved?.collectionId === id) {
-          dispatch({ type: "replace", name: stateRef.current.name, request: stateRef.current.request, notice: stateRef.current.notice });
+      async deleteDomain(id: string) {
+        await api.deleteDomain(id);
+        if (stateRef.current.selectedDomainId === id) dispatch({ type: "selectDomain", id: null });
+        await refresh();
+      },
+      async createCollection(domainId: string, name: string) {
+        const created = await api.createCollection(domainId, name);
+        dispatch({ type: "selectCollection", id: created.id });
+        await refresh();
+      },
+      async renameCollection(domainId: string, id: string, name: string) {
+        await api.renameCollection(domainId, id, name);
+        await refresh();
+      },
+      async deleteCollection(domainId: string, id: string) {
+        await api.deleteCollection(domainId, id);
+        if (stateRef.current.selectedCollectionId === id) dispatch({ type: "selectCollection", id: null });
+        await refresh();
+      },
+      async savePath(method: Method, path: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.savePath(selected.domainId, selected.collectionId, method, path);
+        await refresh();
+      },
+      async updatePath(pathId: string, method: Method, path: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.updatePath(selected.domainId, selected.collectionId, pathId, method, path);
+        await refresh();
+      },
+      async deletePath(pathId: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.deletePath(selected.domainId, selected.collectionId, pathId);
+        await refresh();
+      },
+      async saveHeaders(name: string, headers?: HeaderEntry[]) {
+        const current = stateRef.current;
+        const selected = requireCollection(current);
+        const rows = headers ?? current.request.headers;
+        const summary = await api.saveHeaders(selected.domainId, selected.collectionId, name, rows);
+        if (!headers) {
+          dispatch({ type: "selectHeader", id: summary.id });
+          dispatch({ type: "notice", notice: "Saved headers. Secret values are in the keychain." });
         }
         await refresh();
       },
-      async saveNew(collectionId: string) {
+      async updateHeaders(name: string) {
         const current = stateRef.current;
-        const summary = await api.saveRequest(collectionId, current.name, current.request);
-        dispatch({
-          type: "replace",
-          name: summary.name,
-          request: current.request,
-          saved: { collectionId, requestId: summary.id },
-          notice: "Saved. Secret header and query values are in the keychain.",
-        });
-        await refresh();
-      },
-      async updateSaved() {
-        const current = stateRef.current;
-        if (!current.saved) return;
-        const summary = await api.updateRequest(
-          current.saved.collectionId,
-          current.saved.requestId,
-          current.name,
-          current.request,
+        const selected = requireCollection(current);
+        if (!current.selectedHeaderId) return;
+        await api.updateHeaders(
+          selected.domainId,
+          selected.collectionId,
+          current.selectedHeaderId,
+          name,
+          current.request.headers,
         );
-        dispatch({
-          type: "replace",
-          name: summary.name,
-          request: current.request,
-          saved: current.saved,
-          notice: "Updated.",
-        });
+        dispatch({ type: "notice", notice: "Updated headers." });
         await refresh();
       },
-      async deleteSaved(collectionId: string, requestId: string) {
-        await api.deleteRequest(collectionId, requestId);
-        const saved = stateRef.current.saved;
-        if (saved?.collectionId === collectionId && saved.requestId === requestId) {
-          dispatch({
-            type: "replace",
-            name: "Untitled",
-            request: stateRef.current.request,
-            notice: null,
-          });
+      async renameHeaders(headerId: string, name: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.renameHeaders(selected.domainId, selected.collectionId, headerId, name);
+        await refresh();
+      },
+      async deleteHeaders(headerId: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.deleteHeaders(selected.domainId, selected.collectionId, headerId);
+        await refresh();
+      },
+      async openHeaders(headerId: string) {
+        const selected = requireCollection(stateRef.current);
+        const loaded = await api.loadHeaders(selected.domainId, selected.collectionId, headerId);
+        dispatch({
+          type: "applyHeaders",
+          headers: loaded.headers.length > 0 ? loaded.headers : [{ name: "", value: "", enabled: true, secret: false }],
+          headerId: loaded.id,
+        });
+      },
+      async saveBody(name: string, body?: RequestBody) {
+        const current = stateRef.current;
+        const selected = requireCollection(current);
+        const payload = body ?? current.request.body;
+        const summary = await api.saveBody(selected.domainId, selected.collectionId, name, payload);
+        if (!body) {
+          dispatch({ type: "selectBody", id: summary.id });
+          dispatch({ type: "notice", notice: "Saved body." });
         }
         await refresh();
       },
-      async openSaved(collectionId: string, requestId: string) {
-        const loaded = await api.loadRequest(collectionId, requestId);
-        dispatch({
-          type: "replace",
-          name: loaded.name,
-          request: withBlankRows(loaded.request),
-          saved: { collectionId, requestId },
-          notice: null,
-        });
-        dispatch({ type: "mode", mode: "request" });
+      async updateBody(name: string) {
+        const current = stateRef.current;
+        const selected = requireCollection(current);
+        if (!current.selectedBodyId) return;
+        await api.updateBody(selected.domainId, selected.collectionId, current.selectedBodyId, name, current.request.body);
+        dispatch({ type: "notice", notice: "Updated body." });
+        await refresh();
+      },
+      async renameBody(bodyId: string, name: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.renameBody(selected.domainId, selected.collectionId, bodyId, name);
+        await refresh();
+      },
+      async deleteBody(bodyId: string) {
+        const selected = requireCollection(stateRef.current);
+        await api.deleteBody(selected.domainId, selected.collectionId, bodyId);
+        await refresh();
+      },
+      async openBody(bodyId: string) {
+        const selected = requireCollection(stateRef.current);
+        const loaded = await api.loadBody(selected.domainId, selected.collectionId, bodyId);
+        dispatch({ type: "applyBody", body: loaded.body, bodyId: loaded.id });
       },
       openHistory(entry: HistoryEntry) {
         const masked = entry.request.headers.some((header) => header.secret) || entry.request.query.some((param) => param.secret);
         dispatch({
           type: "replace",
-          name: "From history",
           request: withBlankRows(clearMaskedSecrets(entry.request)),
           notice: masked ? "Secrets are not kept in history. Enter them again before sending." : null,
         });
@@ -370,7 +529,7 @@ export function LabProvider({ children }: { children: ReactNode }) {
           const runs = await api.listBenchmarks();
           dispatch({
             type: "library",
-            collections: stateRef.current.collections,
+            domains: stateRef.current.domains,
             history: stateRef.current.history,
             runs,
             storeStatus: stateRef.current.storeStatus,

@@ -46,6 +46,16 @@ export function isLoopbackUrl(raw: string): boolean {
   }
 }
 
+export function replaceUrlPath(raw: string, path: string): string | null {
+  try {
+    const url = new URL(raw.trim());
+    url.pathname = path.startsWith("/") ? path : `/${path}`;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function previewUrl(request: HttpRequest): string {
   try {
     const url = new URL(request.url.trim());

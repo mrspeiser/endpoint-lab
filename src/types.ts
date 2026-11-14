@@ -150,25 +150,53 @@ export interface StoreStatus {
   message: string | null;
 }
 
-export interface RequestSummary {
+export interface HeaderSummary {
   id: string;
   name: string;
-  method: Method;
-  url: string;
   updatedAtMs: number;
+}
+
+export interface BodySummary {
+  id: string;
+  name: string;
+  kind: "none" | "json" | "text";
+  updatedAtMs: number;
+}
+
+export interface PathSummary {
+  id: string;
+  method: Method;
+  path: string;
 }
 
 export interface CollectionSummary {
   id: string;
   name: string;
-  requests: RequestSummary[];
+  paths: PathSummary[];
+  headers: HeaderSummary[];
+  bodies: BodySummary[];
 }
 
-export interface LoadedRequest {
+export interface DomainSummary {
   id: string;
+  name: string;
+  collections: CollectionSummary[];
+}
+
+export interface LoadedHeaders {
+  id: string;
+  domainId: string;
   collectionId: string;
   name: string;
-  request: HttpRequest;
+  headers: HeaderEntry[];
+}
+
+export interface LoadedBody {
+  id: string;
+  domainId: string;
+  collectionId: string;
+  name: string;
+  body: RequestBody;
 }
 
 export interface HistoryEntry {

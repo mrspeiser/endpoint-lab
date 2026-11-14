@@ -112,22 +112,74 @@ textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "SF Mo
 
 .workspace {
   min-height: 0;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  min-width: 0;
+  overflow: auto;
 }
 
-.sidebar {
+.request-workspace {
+  --domains: minmax(148px, 0.7fr);
+  --collections: minmax(148px, 0.75fr);
+  --paths: minmax(136px, 0.8fr);
+  --headers: minmax(136px, 0.8fr);
+  --bodies: minmax(136px, 0.8fr);
+  height: 100%;
+  min-height: 100%;
+  min-width: min-content;
+  display: grid;
+  grid-template-columns:
+    var(--domains)
+    var(--collections)
+    var(--paths)
+    var(--headers)
+    var(--bodies)
+    minmax(260px, 1.5fr)
+    minmax(200px, 1.15fr)
+    minmax(168px, 0.85fr);
+}
+
+.request-workspace.domains-collapsed { --domains: 36px; }
+
+.request-workspace.collections-collapsed { --collections: 36px; }
+
+.request-workspace.paths-collapsed { --paths: 36px; }
+
+.request-workspace.headers-collapsed { --headers: 36px; }
+
+.request-workspace.bodies-collapsed { --bodies: 36px; }
+
+.column {
+  min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: auto;
-  border-right: 1px solid var(--line);
-  padding: 12px;
-  background: #14171d;
+}
+
+.library-column {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  padding: 12px;
+  background: #14171d;
+  border-right: 1px solid var(--line);
 }
 
-.sidebar h2, .response h2, .bench-config h2 {
+.rail {
+  height: 100%;
+  min-height: 0;
+  padding: 12px 0;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: #14171d;
+  color: var(--muted);
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.column h2, .bench-config h2 {
   margin: 0 0 8px;
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -142,7 +194,11 @@ textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "SF Mo
   align-items: center;
 }
 
-.inline-form input, .field input, .field select { width: 100%; }
+.inline-form { flex-wrap: wrap; }
+
+.inline-form input { flex: 1 1 8rem; min-width: 0; width: auto; }
+
+.field input, .field select { width: 100%; }
 
 .collection { margin-top: 10px; }
 
@@ -151,7 +207,15 @@ textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "SF Mo
   gap: 6px;
   align-items: center;
   width: 100%;
+  min-width: 0;
 }
+
+.saved-row {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.history-item { flex-wrap: wrap; }
 
 .saved, .history-item {
   flex: 1;
@@ -163,14 +227,80 @@ textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "SF Mo
   padding: 6px 4px;
 }
 
-.saved small, .history-item small {
+.saved {
+  min-width: 0;
+  padding: 2px 4px;
+}
+
+.saved strong {
   display: block;
-  color: var(--muted);
-  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+button.icon {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  background: transparent;
+  border-color: transparent;
+}
+
+button.icon.armed { color: var(--bad); }
+
+.saved-row .inline-form { flex: 1; min-width: 0; flex-wrap: nowrap; }
+
+.preset-actions, .path-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.path-add select { width: 78px; padding: 4px; }
+
+.path-add input { flex: 1; min-width: 0; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  padding: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.modal-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+.modal textarea { min-height: 140px; }
+
+.saved small, .history-item small {
+  display: block;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved span, .history-item span { min-width: 0; }
+
+.saved-label { display: flex; gap: 6px; min-width: 0; align-items: baseline; }
+
+.saved-label strong { flex: 1; min-width: 0; }
+
+.saved small { display: inline; }
+
+.saved.picked { background: #2a303b; }
 
 .verb {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
@@ -183,19 +313,18 @@ textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "SF Mo
 .verb-post { color: var(--accent); }
 .verb-delete { color: var(--bad); }
 
-.save-box, .history { border-top: 1px solid var(--line); padding-top: 12px; }
+.history-column { border-left: 1px solid var(--line); background: #12141a; padding: 14px; }
 
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 
 .form-error { color: var(--bad); margin: 6px 0 0; }
 
-main { min-width: 0; min-height: 0; }
-
-.request-layout, .bench-layout {
+.bench-layout {
   height: 100%;
-  min-height: 0;
+  min-height: 100%;
+  min-width: min-content;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1.1fr);
 }
 
 .editor, .response, .bench-config, .bench-results {
@@ -207,9 +336,9 @@ main { min-width: 0; min-height: 0; }
 
 .response, .bench-results { border-left: 1px solid var(--line); background: #12141a; }
 
-.url-row { align-items: stretch; }
+.url-row { align-items: stretch; flex-wrap: wrap; }
 
-.url { flex: 1; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+.url { flex: 1 1 160px; min-width: 0; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
 
 .method { width: 108px; font-weight: 650; }
 
@@ -333,8 +462,3 @@ pre {
 
 h3 { margin: 16px 0 8px; font-size: 13px; }
 
-@media (max-width: 1100px) {
-  .workspace, .request-layout, .bench-layout { grid-template-columns: 1fr; }
-  .sidebar { border-right: 0; border-bottom: 1px solid var(--line); max-height: 280px; }
-  .response, .bench-results { border-left: 0; border-top: 1px solid var(--line); }
-}

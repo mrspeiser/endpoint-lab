@@ -31,8 +31,9 @@ pub use http::{
 };
 pub use limits::EngineLimits;
 pub use store::{
-    default_store_path, CollectionSummary, HistoryEntry, HistoryOutcome, KeyringSecretStore,
-    LoadedRequest, MemorySecretStore, RequestSummary, SecretStore, Store, StoreStatus,
+    default_store_path, BodySummary, CollectionSummary, DomainSummary, HeaderSummary, HistoryEntry,
+    HistoryOutcome, KeyringSecretStore, LoadedBody, LoadedHeaders, MemorySecretStore, PathSummary,
+    SecretStore, Store, StoreStatus,
 };
 pub use target::ensure_target_allowed;
 pub use tokio_util::sync::CancellationToken;
