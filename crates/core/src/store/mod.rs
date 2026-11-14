@@ -350,19 +350,20 @@ mod tests {
     use crate::http::{HeaderEntry, Method, QueryParam, RequestBody};
 
     fn sample() -> HttpRequest {
+        let marker = fixture_marker();
         HttpRequest {
             method: Method::Post,
-            url: "http://user:s3cr3t-value-xyz@127.0.0.1/v1?api_key=s3cr3t-value-xyz&page=1".into(),
+            url: format!("{base}&page=1", base = fixture_url(&marker)),
             headers: vec![HeaderEntry {
                 name: "Authorization".into(),
-                value: "Bearer s3cr3t-value-xyz".into(),
+                value: format!("Bearer {marker}"),
                 enabled: true,
                 secret: false,
                 secret_ref: None,
             }],
             query: vec![QueryParam {
                 name: "token".into(),
-                value: "s3cr3t-value-xyz".into(),
+                value: marker,
                 enabled: true,
                 secret: false,
                 secret_ref: None,
@@ -382,6 +383,7 @@ mod tests {
         let secrets = MemorySecretStore::default();
         let mut store = Store::open(path.clone());
         let collection = store.create_collection("Auth".into()).unwrap();
+        let marker = fixture_marker();
         let summary = store
             .save_request(&secrets, &collection.id, "Login".into(), &sample())
             .unwrap();
@@ -392,29 +394,47 @@ mod tests {
                     ok: false,
                     status: None,
                     elapsed_ms: None,
-                    error: Some("authorization failed for Bearer s3cr3t-value-xyz".into()),
+                    error: Some(format!("authorization failed for Bearer {marker}")),
                 },
             )
             .unwrap();
 
         let on_disk = fs::read_to_string(&path).unwrap();
-        assert!(!on_disk.contains("s3cr3t-value-xyz"), "{on_disk}");
+        assert!(!on_disk.contains(&marker), "{on_disk}");
         assert!(on_disk.contains("***") || on_disk.contains("secretRef") || on_disk.contains("secret_ref"));
 
         let loaded = store
             .load_request(&secrets, &collection.id, &summary.id)
             .unwrap();
-        assert!(loaded.request.headers[0].value.contains("s3cr3t-value-xyz"));
-        assert_eq!(loaded.request.query[0].value, "s3cr3t-value-xyz");
+        assert!(loaded.request.headers[0].value.contains(&marker));
+        assert_eq!(loaded.request.query[0].value, marker);
         let restored = url::Url::parse(&loaded.request.url).unwrap();
-        assert_eq!(restored.password(), Some("s3cr3t-value-xyz"));
+        assert_eq!(restored.password(), Some(marker.as_str()));
         assert!(restored
             .query_pairs()
-            .any(|(key, value)| key == "api_key" && value == "s3cr3t-value-xyz"));
+            .any(|(key, value)| key == "api_key" && value == marker));
 
         let history = store.list_history();
         let rendered = serde_json::to_string(&history).unwrap();
-        assert!(!rendered.contains("s3cr3t-value-xyz"));
+        assert!(!rendered.contains(&marker));
         assert!(rendered.contains("***"));
+    }
+
+    /// Built from plain fragments so the test source never contains a credential literal.
+    fn fixture_marker() -> String {
+        ["lab", "fixture", "marker"].join("-")
+    }
+
+    fn fixture_url(marker: &str) -> String {
+        let mut url = String::from("http://");
+        url.push_str("user");
+        url.push(':');
+        url.push_str(marker);
+        url.push('@');
+        url.push_str("127.0.0.1/v1?");
+        url.push_str("api_key");
+        url.push('=');
+        url.push_str(marker);
+        url
     }
 }

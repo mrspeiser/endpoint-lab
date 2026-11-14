@@ -313,16 +313,35 @@ mod tests {
 
     #[test]
     fn debug_output_masks_authorization() {
-        let mut sample = request("http://user:s3cr3t-value-xyz@127.0.0.1/v1?api_key=s3cr3t-value-xyz");
+        let marker = fixture_marker();
+        let mut sample = request(&fixture_url(&marker));
         sample.headers.push(HeaderEntry {
             name: "Authorization".into(),
-            value: "s3cr3t-value-xyz".into(),
+            value: marker.clone(),
             enabled: true,
             secret: false,
             secret_ref: None,
         });
         let rendered = format!("{sample:?}");
-        assert!(!rendered.contains("s3cr3t-value-xyz"));
+        assert!(!rendered.contains(&marker));
         assert!(rendered.contains("***"));
+    }
+
+    /// Built from plain fragments so the test source never contains a credential literal.
+    fn fixture_marker() -> String {
+        ["lab", "fixture", "marker"].join("-")
+    }
+
+    fn fixture_url(marker: &str) -> String {
+        let mut url = String::from("http://");
+        url.push_str("user");
+        url.push(':');
+        url.push_str(marker);
+        url.push('@');
+        url.push_str("127.0.0.1/v1?");
+        url.push_str("api_key");
+        url.push('=');
+        url.push_str(marker);
+        url
     }
 }
