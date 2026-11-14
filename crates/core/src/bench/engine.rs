@@ -19,7 +19,8 @@ use crate::util::{duration_us, now_ms};
 /// Run a closed-loop benchmark.
 ///
 /// `progress` is invoked from this task about every 250 ms, not from each
-/// worker and not once per request. The callback does not need to be `Sync`
+/// worker and not once per request. The callback must be `Send` because the
+/// benchmark future moves across threads. It does not need to be `Sync`
 /// because workers never call it.
 ///
 /// Latency uses [`Instant`], which is monotonic. A 2xx response is a success.
@@ -30,7 +31,7 @@ pub async fn run_benchmark(
     executor: &HttpExecutor,
     config: BenchConfig,
     cancel: &CancellationToken,
-    mut progress: impl FnMut(BenchSnapshot),
+    mut progress: impl FnMut(BenchSnapshot) + Send,
 ) -> Result<BenchSummary, Error> {
     config.validate()?;
     let request = config.execution_request();
@@ -133,7 +134,7 @@ async fn run_phase(
     plan: PhasePlan,
     cancel: &CancellationToken,
     state: &Arc<RunState>,
-    progress: &mut dyn FnMut(BenchSnapshot),
+    progress: &mut (dyn FnMut(BenchSnapshot) + Send),
 ) {
     let started = Instant::now();
     progress(state.snapshot(plan.phase, started));

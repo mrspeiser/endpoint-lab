@@ -9,17 +9,17 @@ use endpoint_lab_core::{
 use crate::state::{lock, AppState, BenchGuard, InflightGuard};
 
 #[tauri::command]
-fn engine_limits() -> EngineLimits {
+pub fn engine_limits() -> EngineLimits {
     EngineLimits::current()
 }
 
 #[tauri::command]
-fn store_status(state: State<'_, AppState>) -> StoreStatus {
+pub fn store_status(state: State<'_, AppState>) -> StoreStatus {
     lock(&state.store).status()
 }
 
 #[tauri::command]
-async fn send_request(
+pub async fn send_request(
     state: State<'_, AppState>,
     invocation_id: String,
     request: HttpRequest,
@@ -50,7 +50,7 @@ async fn send_request(
 }
 
 #[tauri::command]
-fn cancel_request(state: State<'_, AppState>, invocation_id: String) -> Result<(), ErrorView> {
+pub fn cancel_request(state: State<'_, AppState>, invocation_id: String) -> Result<(), ErrorView> {
     if let Some(token) = lock(&state.inflight).get(&invocation_id) {
         token.cancel();
     }
@@ -58,26 +58,26 @@ fn cancel_request(state: State<'_, AppState>, invocation_id: String) -> Result<(
 }
 
 #[tauri::command]
-fn list_collections(state: State<'_, AppState>) -> Result<Vec<CollectionSummary>, ErrorView> {
+pub fn list_collections(state: State<'_, AppState>) -> Result<Vec<CollectionSummary>, ErrorView> {
     Ok(lock(&state.store).list_collections())
 }
 
 #[tauri::command]
-fn create_collection(state: State<'_, AppState>, name: String) -> Result<CollectionSummary, ErrorView> {
+pub fn create_collection(state: State<'_, AppState>, name: String) -> Result<CollectionSummary, ErrorView> {
     lock(&state.store)
         .create_collection(name)
         .map_err(Error::view)
 }
 
 #[tauri::command]
-fn rename_collection(state: State<'_, AppState>, id: String, name: String) -> Result<(), ErrorView> {
+pub fn rename_collection(state: State<'_, AppState>, id: String, name: String) -> Result<(), ErrorView> {
     lock(&state.store)
         .rename_collection(&id, name)
         .map_err(Error::view)
 }
 
 #[tauri::command]
-fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), ErrorView> {
+pub fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), ErrorView> {
     let secrets = state.secrets.clone();
     lock(&state.store)
         .delete_collection(&id, secrets.as_ref())
@@ -85,7 +85,7 @@ fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), Error
 }
 
 #[tauri::command]
-fn save_request(
+pub fn save_request(
     state: State<'_, AppState>,
     collection_id: String,
     name: String,
@@ -98,7 +98,7 @@ fn save_request(
 }
 
 #[tauri::command]
-fn update_request(
+pub fn update_request(
     state: State<'_, AppState>,
     collection_id: String,
     request_id: String,
@@ -118,7 +118,7 @@ fn update_request(
 }
 
 #[tauri::command]
-fn delete_request(
+pub fn delete_request(
     state: State<'_, AppState>,
     collection_id: String,
     request_id: String,
@@ -130,7 +130,7 @@ fn delete_request(
 }
 
 #[tauri::command]
-fn load_request(
+pub fn load_request(
     state: State<'_, AppState>,
     collection_id: String,
     request_id: String,
@@ -142,17 +142,17 @@ fn load_request(
 }
 
 #[tauri::command]
-fn list_history(state: State<'_, AppState>) -> Result<Vec<HistoryEntry>, ErrorView> {
+pub fn list_history(state: State<'_, AppState>) -> Result<Vec<HistoryEntry>, ErrorView> {
     Ok(lock(&state.store).list_history())
 }
 
 #[tauri::command]
-fn list_benchmarks(state: State<'_, AppState>) -> Result<Vec<BenchSummary>, ErrorView> {
+pub fn list_benchmarks(state: State<'_, AppState>) -> Result<Vec<BenchSummary>, ErrorView> {
     Ok(lock(&state.store).list_benchmarks())
 }
 
 #[tauri::command]
-async fn run_benchmark(
+pub async fn run_benchmark(
     state: State<'_, AppState>,
     config: BenchConfig,
     on_progress: Channel<BenchSnapshot>,
@@ -179,7 +179,7 @@ async fn run_benchmark(
 }
 
 #[tauri::command]
-fn cancel_benchmark(state: State<'_, AppState>) -> Result<(), ErrorView> {
+pub fn cancel_benchmark(state: State<'_, AppState>) -> Result<(), ErrorView> {
     if let Some(token) = lock(&state.bench).as_ref() {
         token.cancel();
     }
