@@ -84,13 +84,19 @@ pub fn delete_domain(state: State<'_, AppState>, id: String) -> Result<(), Error
 }
 
 #[tauri::command]
+pub fn reorder_domains(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), ErrorView> {
+    lock(&state.store).reorder_domains(ids).map_err(Error::view)
+}
+
+#[tauri::command]
 pub fn create_collection(
     state: State<'_, AppState>,
     domain_id: String,
     name: String,
+    base_url: String,
 ) -> Result<CollectionSummary, ErrorView> {
     lock(&state.store)
-        .create_collection(&domain_id, name)
+        .create_collection(&domain_id, name, base_url)
         .map_err(Error::view)
 }
 
@@ -107,6 +113,19 @@ pub fn rename_collection(
 }
 
 #[tauri::command]
+pub fn update_collection(
+    state: State<'_, AppState>,
+    domain_id: String,
+    id: String,
+    name: String,
+    base_url: String,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .update_collection(&domain_id, &id, name, base_url)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
 pub fn delete_collection(
     state: State<'_, AppState>,
     domain_id: String,
@@ -115,6 +134,13 @@ pub fn delete_collection(
     let secrets = state.secrets.clone();
     lock(&state.store)
         .delete_collection(&domain_id, &id, secrets.as_ref())
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn reorder_collections(state: State<'_, AppState>, domain_id: String, ids: Vec<String>) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .reorder_collections(&domain_id, ids)
         .map_err(Error::view)
 }
 
@@ -181,6 +207,18 @@ pub fn delete_headers(
 }
 
 #[tauri::command]
+pub fn reorder_headers(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    ids: Vec<String>,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .reorder_headers(&domain_id, &collection_id, ids)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
 pub fn load_headers(
     state: State<'_, AppState>,
     domain_id: String,
@@ -229,6 +267,18 @@ pub fn delete_path(
 ) -> Result<(), ErrorView> {
     lock(&state.store)
         .delete_path(&domain_id, &collection_id, &path_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn reorder_paths(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    ids: Vec<String>,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .reorder_paths(&domain_id, &collection_id, ids)
         .map_err(Error::view)
 }
 
@@ -285,6 +335,18 @@ pub fn delete_body(
 }
 
 #[tauri::command]
+pub fn reorder_bodies(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    ids: Vec<String>,
+) -> Result<(), ErrorView> {
+    lock(&state.store)
+        .reorder_bodies(&domain_id, &collection_id, ids)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
 pub fn load_body(
     state: State<'_, AppState>,
     domain_id: String,
@@ -299,6 +361,16 @@ pub fn load_body(
 #[tauri::command]
 pub fn list_history(state: State<'_, AppState>) -> Result<Vec<HistoryEntry>, ErrorView> {
     Ok(lock(&state.store).list_history())
+}
+
+#[tauri::command]
+pub fn clear_history(state: State<'_, AppState>) -> Result<(), ErrorView> {
+    lock(&state.store).clear_history().map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn reorder_history(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), ErrorView> {
+    lock(&state.store).reorder_history(ids).map_err(Error::view)
 }
 
 #[tauri::command]

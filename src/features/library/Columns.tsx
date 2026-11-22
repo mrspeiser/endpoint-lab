@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
-import { formatWhen, replaceUrlPath } from "../../lib/format";
+import { formatWhen, joinBaseUrl, replaceUrlPath } from "../../lib/format";
 import { useLab } from "../../state/lab";
-import type { DomainSummary, HeaderEntry, Method, RequestBody } from "../../types";
+import type { DomainSummary, HeaderEntry, LoadedBody, LoadedHeaders, Method, RequestBody } from "../../types";
 import { KeyValueTable } from "../request/KeyValueTable";
 
 const METHODS: Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
@@ -48,6 +48,11 @@ export function DomainsColumn() {
           key={domain.id}
           title={domain.name}
           selected={domain.id === state.selectedDomainId}
+          dragId={domain.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(state.domains.map((item) => item.id), sourceId, domain.id, after);
+            if (next) void lab.reorderDomains(next);
+          }}
           onOpen={() => dispatch({ type: "selectDomain", id: domain.id })}
           onRename={(next) => lab.renameDomain(domain.id, next)}
           onDelete={() => lab.deleteDomain(domain.id)}
@@ -62,6 +67,7 @@ export function CollectionsColumn() {
   const lab = useLab();
   const { state, dispatch } = lab;
   const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const domain = state.domains.find((item) => item.id === state.selectedDomainId);
 
@@ -92,29 +98,48 @@ export function CollectionsColumn() {
         </button>
       </header>
       <form
-        className="inline-form"
+        className="collection-create"
         onSubmit={(event) => {
           event.preventDefault();
           const next = name.trim();
+          const nextBase = baseUrl.trim();
           if (!state.selectedDomainId) {
             setError("Choose a domain first.");
             return;
           }
-          if (!next) return;
+          if (!next) {
+            setError("Name the collection first.");
+            return;
+          }
+          if (!nextBase) {
+            setError("Enter a base URL.");
+            return;
+          }
           setError(null);
           void lab
-            .createCollection(state.selectedDomainId, next)
-            .then(() => setName(""))
+            .createCollection(state.selectedDomainId, next, nextBase)
+            .then(() => {
+              setName("");
+              setBaseUrl("");
+            })
             .catch((caught: unknown) => setError(messageOf(caught)));
         }}
       >
+        <div className="collection-create-row">
+          <input
+            value={name}
+            placeholder="New collection"
+            aria-label="New collection name"
+            onChange={(event) => setName(event.target.value)}
+          />
+          <button type="submit">Add</button>
+        </div>
         <input
-          value={name}
-          placeholder="New collection"
-          aria-label="New collection name"
-          onChange={(event) => setName(event.target.value)}
+          value={baseUrl}
+          placeholder="http://127.0.0.1:8080/v1"
+          aria-label="Collection base URL"
+          onChange={(event) => setBaseUrl(event.target.value)}
         />
-        <button type="submit">Add</button>
       </form>
       {!domain ? <p className="muted">Select a domain.</p> : null}
       {domain && domain.collections.length === 0 ? <p className="muted">No collections in this domain.</p> : null}
@@ -122,10 +147,38 @@ export function CollectionsColumn() {
         <ItemRow
           key={collection.id}
           title={collection.name}
+          detail={collection.baseUrl}
+          stacked
           selected={collection.id === state.selectedCollectionId}
-          onOpen={() => dispatch({ type: "selectCollection", id: collection.id })}
-          onRename={(next) => lab.renameCollection(domain.id, collection.id, next)}
+          dragId={collection.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(
+              domain.collections.map((item) => item.id),
+              sourceId,
+              collection.id,
+              after,
+            );
+            if (next) void lab.reorderCollections(domain.id, next);
+          }}
+          onOpen={() =>
+            dispatch({
+              type: "selectCollection",
+              id: collection.id,
+              url: collection.baseUrl.trim() ? collection.baseUrl : null,
+            })
+          }
+          onRename={() => Promise.resolve()}
           onDelete={() => lab.deleteCollection(domain.id, collection.id)}
+          editor={(finish) => (
+            <CollectionEditor
+              name={collection.name}
+              baseUrl={collection.baseUrl}
+              onSave={async (nextName, nextBase) => {
+                await lab.updateCollection(domain.id, collection.id, nextName, nextBase);
+                finish();
+              }}
+            />
+          )}
         />
       ))}
       {error ? <p className="form-error">{error}</p> : null}
@@ -158,7 +211,7 @@ export function PathsColumn() {
         </button>
       </header>
       <form
-        className="path-add"
+        className="path-create"
         onSubmit={(event) => {
           event.preventDefault();
           if (!collection) {
@@ -176,13 +229,15 @@ export function PathsColumn() {
             .catch((caught: unknown) => setError(messageOf(caught)));
         }}
       >
-        <select aria-label="Method" value={method} onChange={(event) => setMethod(event.target.value as Method)}>
-          {METHODS.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
+        <div className="path-create-row">
+          <select aria-label="Method" value={method} onChange={(event) => setMethod(event.target.value as Method)}>
+            {METHODS.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+          <button type="submit">Add</button>
+        </div>
         <input value={path} placeholder="/v1/users" aria-label="Path" onChange={(event) => setPath(event.target.value)} />
-        <button type="submit">Add</button>
       </form>
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.paths.length === 0 ? <p className="muted">No saved paths.</p> : null}
@@ -192,10 +247,16 @@ export function PathsColumn() {
           title={item.path}
           badge={item.method}
           selected={item.id === state.selectedPathId}
+          dragId={item.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(collection.paths.map((path) => path.id), sourceId, item.id, after);
+            if (next) void lab.reorderPaths(next);
+          }}
           onOpen={() => {
-            const next = replaceUrlPath(state.request.url, item.path);
+            const base = collection.baseUrl.trim();
+            const next = base ? joinBaseUrl(base, item.path) : replaceUrlPath(state.request.url, item.path);
             if (!next) {
-              setError("Enter a valid URL before applying a path.");
+              setError(base ? "The collection base URL is not valid." : "Enter a valid URL before applying a path.");
               return;
             }
             setError(null);
@@ -225,6 +286,7 @@ export function HeadersColumn() {
   const { state, dispatch } = lab;
   const collection = selectedCollection(state.domains, state.selectedDomainId, state.selectedCollectionId);
   const [dialog, setDialog] = useState<null | "new" | "from">(null);
+  const [editing, setEditing] = useState<LoadedHeaders | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (state.headersCollapsed) {
@@ -254,14 +316,40 @@ export function HeadersColumn() {
           key={item.id}
           title={item.name}
           selected={item.id === state.selectedHeaderId}
+          dragId={item.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(collection.headers.map((header) => header.id), sourceId, item.id, after);
+            if (next) void lab.reorderHeaders(next);
+          }}
           onOpen={() => void lab.openHeaders(item.id).catch((caught: unknown) => setError(messageOf(caught)))}
+          onEdit={() => {
+            void lab
+              .loadHeaderPreset(item.id)
+              .then(setEditing)
+              .catch((caught: unknown) => setError(messageOf(caught)));
+          }}
           onRename={(next) => lab.renameHeaders(item.id, next)}
           onDelete={() => lab.deleteHeaders(item.id)}
         />
       ))}
       {error ? <p className="form-error">{error}</p> : null}
+      {editing ? (
+        <HeaderPresetDialog
+          title="Edit headers"
+          hasCollection
+          initialName={editing.name}
+          initialRows={editing.headers.length > 0 ? editing.headers : [{ name: "", value: "", enabled: true, secret: false }]}
+          saveOnClose
+          onClose={() => setEditing(null)}
+          onSave={async (name, headers) => {
+            await lab.updateHeaders(editing.id, name, headers);
+            setEditing(null);
+          }}
+        />
+      ) : null}
       {dialog === "new" ? (
         <HeaderPresetDialog
+          title="New headers"
           hasCollection={Boolean(collection)}
           onClose={() => setDialog(null)}
           onSave={async (name, headers) => {
@@ -291,6 +379,7 @@ export function BodiesColumn() {
   const { state, dispatch } = lab;
   const collection = selectedCollection(state.domains, state.selectedDomainId, state.selectedCollectionId);
   const [dialog, setDialog] = useState<null | "new" | "from">(null);
+  const [editing, setEditing] = useState<LoadedBody | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (state.bodiesCollapsed) {
@@ -321,14 +410,40 @@ export function BodiesColumn() {
           title={item.name}
           detail={item.kind}
           selected={item.id === state.selectedBodyId}
+          dragId={item.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(collection.bodies.map((body) => body.id), sourceId, item.id, after);
+            if (next) void lab.reorderBodies(next);
+          }}
           onOpen={() => void lab.openBody(item.id).catch((caught: unknown) => setError(messageOf(caught)))}
+          onEdit={() => {
+            void lab
+              .loadBodyPreset(item.id)
+              .then(setEditing)
+              .catch((caught: unknown) => setError(messageOf(caught)));
+          }}
           onRename={(next) => lab.renameBody(item.id, next)}
           onDelete={() => lab.deleteBody(item.id)}
         />
       ))}
       {error ? <p className="form-error">{error}</p> : null}
+      {editing ? (
+        <BodyPresetDialog
+          title="Edit body"
+          hasCollection
+          initialName={editing.name}
+          initialBody={editing.body}
+          saveOnClose
+          onClose={() => setEditing(null)}
+          onSave={async (name, body) => {
+            await lab.updateBody(editing.id, name, body);
+            setEditing(null);
+          }}
+        />
+      ) : null}
       {dialog === "new" ? (
         <BodyPresetDialog
+          title="New body"
           hasCollection={Boolean(collection)}
           onClose={() => setDialog(null)}
           onSave={async (name, body) => {
@@ -354,21 +469,64 @@ export function BodiesColumn() {
 }
 
 export function HistoryColumn() {
-  const { state, openHistory } = useLab();
+  const lab = useLab();
+  const { state, dispatch, openHistory } = lab;
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  if (state.historyCollapsed) {
+    return (
+      <button type="button" className="rail history-rail" aria-label="Expand history" onClick={() => dispatch({ type: "collapse", history: false })}>
+        History
+      </button>
+    );
+  }
+
   return (
     <section className="column history-column">
-      <h2>History</h2>
+      <header className="side-head">
+        <h2>History</h2>
+        <button
+          type="button"
+          className={confirmClear ? "ghost danger-text" : "ghost"}
+          disabled={state.history.length === 0}
+          onClick={() => {
+            if (confirmClear) {
+              setConfirmClear(false);
+              void lab.clearHistory();
+              return;
+            }
+            setConfirmClear(true);
+          }}
+        >
+          {confirmClear ? "Confirm" : "Clear"}
+        </button>
+        <button type="button" className="ghost" aria-label="Collapse history" onClick={() => dispatch({ type: "collapse", history: true })}>
+          Hide
+        </button>
+      </header>
       {state.history.length === 0 ? <p className="muted">Recent requests will show up here.</p> : null}
       {state.history.map((entry) => (
-        <button key={entry.id} type="button" className="history-item" onClick={() => openHistory(entry)}>
-          <span className={`verb verb-${entry.request.method.toLowerCase()}`}>{entry.request.method}</span>
-          <span>
-            <strong>{entry.ok ? entry.status ?? "OK" : entry.error ?? "Failed"}</strong>
-            <small>
-              {entry.request.url} · {formatWhen(entry.atMs)}
-            </small>
-          </span>
-        </button>
+        <ItemRow
+          key={entry.id}
+          title={entry.ok ? String(entry.status ?? "OK") : entry.error ?? "Failed"}
+          detail={`${entry.request.url} · ${formatWhen(entry.atMs)}`}
+          badge={entry.request.method}
+          selected={false}
+          dragId={entry.id}
+          onDropItem={(sourceId, after) => {
+            const next = dropOrder(
+              state.history.map((item) => item.id),
+              sourceId,
+              entry.id,
+              after,
+            );
+            if (next) void lab.reorderHistory(next);
+          }}
+          onOpen={() => openHistory(entry)}
+          onRename={() => Promise.resolve()}
+          onDelete={() => Promise.resolve()}
+          history
+        />
       ))}
     </section>
   );
@@ -378,27 +536,56 @@ function ItemRow({
   title,
   detail,
   badge,
+  stacked = false,
   selected,
+  dragId,
+  onDropItem,
   onOpen,
+  onEdit,
   onRename,
   onDelete,
   editor,
+  history = false,
 }: {
   title: string;
   detail?: string;
   badge?: string;
+  stacked?: boolean;
   selected: boolean;
+  dragId?: string;
+  onDropItem?: (sourceId: string, after: boolean) => void;
   onOpen: () => void;
+  onEdit?: () => void;
   onRename: (name: string) => Promise<void>;
   onDelete: () => Promise<void>;
   editor?: (finish: () => void) => ReactNode;
+  history?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const liveDrag = useRowDrag();
+  const dragging = liveDrag?.sourceId === dragId;
+  const over =
+    liveDrag && dragId && liveDrag.targetId === dragId && liveDrag.sourceId !== dragId
+      ? liveDrag.after
+        ? "after"
+        : "before"
+      : null;
+
+  if (dragId && onDropItem) dropHandlers.set(dragId, onDropItem);
+  useEffect(() => {
+    if (!dragId) return;
+    return () => {
+      dropHandlers.delete(dragId);
+    };
+  }, [dragId]);
 
   return (
-    <div className="saved-row">
+    <div
+      className={`saved-row${history ? " history-row" : ""}${over ? ` drop-${over}` : ""}${dragging ? " dragging" : ""}`}
+      data-row-id={dragId}
+    >
       {editing ? (
         editor ? (
           editor(() => setEditing(false))
@@ -420,41 +607,102 @@ function ItemRow({
         )
       ) : (
         <>
+          {dragId ? (
+            <span
+              className="grip"
+              role="button"
+              tabIndex={0}
+              aria-label={`Reorder ${title}`}
+              onPointerDown={(event) => beginRowDrag(event, dragId)}
+            >
+              <GripIcon />
+            </span>
+          ) : null}
           <button type="button" className={selected ? "saved picked" : "saved"} onClick={onOpen}>
-            <span className="saved-label">
+            <span className={stacked ? "saved-label stacked" : "saved-label"}>
               {badge ? <span className={`verb verb-${badge.toLowerCase()}`}>{badge}</span> : null}
               <strong>{title}</strong>
               {detail ? <small>{detail}</small> : null}
             </span>
           </button>
-          <button
-            type="button"
-            className="icon"
-            aria-label={`Rename ${title}`}
-            onClick={() => {
-              setDraft(title);
-              setEditing(true);
-            }}
-          >
-            <PencilIcon />
-          </button>
-          <button
-            type="button"
-            className={pendingDelete ? "icon danger-text armed" : "icon danger-text"}
-            aria-label={pendingDelete ? "Confirm delete" : `Delete ${title}`}
-            onClick={() => {
-              if (pendingDelete) {
-                void onDelete().then(() => setPendingDelete(false));
-              } else {
-                setPendingDelete(true);
-              }
-            }}
-          >
-            <CloseIcon />
-          </button>
+          {onEdit ? (
+            <button type="button" className="icon" aria-label={`Edit ${title}`} onClick={onEdit}>
+              <EditIcon />
+            </button>
+          ) : null}
+          {history ? null : (
+            <>
+              <button
+                type="button"
+                className="icon"
+                aria-label={`Rename ${title}`}
+                onClick={() => {
+                  setDraft(title);
+                  setEditing(true);
+                }}
+              >
+                <PencilIcon />
+              </button>
+              <button
+                type="button"
+                className={pendingDelete ? "icon danger-text armed" : "icon danger-text"}
+                aria-label={pendingDelete ? "Confirm delete" : `Delete ${title}`}
+                onClick={() => {
+                  if (pendingDelete) {
+                    void onDelete().then(() => setPendingDelete(false));
+                  } else {
+                    setPendingDelete(true);
+                  }
+                }}
+              >
+                <CloseIcon />
+              </button>
+            </>
+          )}
         </>
       )}
     </div>
+  );
+}
+
+function CollectionEditor({
+  name,
+  baseUrl,
+  onSave,
+}: {
+  name: string;
+  baseUrl: string;
+  onSave: (name: string, baseUrl: string) => Promise<void>;
+}) {
+  const [nextName, setNextName] = useState(name);
+  const [nextBase, setNextBase] = useState(baseUrl);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="collection-edit"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmedName = nextName.trim();
+        const trimmedBase = nextBase.trim();
+        if (!trimmedName) {
+          setError("Name the collection first.");
+          return;
+        }
+        if (!trimmedBase) {
+          setError("Enter a base URL.");
+          return;
+        }
+        setError(null);
+        void onSave(trimmedName, trimmedBase).catch((caught: unknown) => setError(messageOf(caught)));
+      }}
+    >
+      <input value={nextName} aria-label={`Rename ${name}`} onChange={(event) => setNextName(event.target.value)} />
+      <input value={nextBase} aria-label="Base URL" onChange={(event) => setNextBase(event.target.value)} />
+      <button type="submit" className="icon" aria-label="Save collection">
+        <CheckIcon />
+      </button>
+      {error ? <p className="form-error">{error}</p> : null}
+    </form>
   );
 }
 
@@ -494,34 +742,51 @@ function PathEditor({
 }
 
 function HeaderPresetDialog({
+  title,
   hasCollection,
+  initialName = "",
+  initialRows,
+  saveOnClose = false,
   onClose,
   onSave,
 }: {
+  title: string;
   hasCollection: boolean;
+  initialName?: string;
+  initialRows?: HeaderEntry[];
+  saveOnClose?: boolean;
   onClose: () => void;
   onSave: (name: string, headers: HeaderEntry[]) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [rows, setRows] = useState<HeaderEntry[]>([{ name: "", value: "", enabled: true, secret: false }]);
+  const [name, setName] = useState(initialName);
+  const [rows, setRows] = useState<HeaderEntry[]>(initialRows ?? [{ name: "", value: "", enabled: true, secret: false }]);
   const [error, setError] = useState<string | null>(null);
+  const closing = useRef(false);
+  const persist = () => {
+    if (closing.current) return;
+    if (!hasCollection) {
+      setError("Choose a collection first.");
+      return;
+    }
+    const next = name.trim();
+    if (!next) {
+      setError("Name the header set first.");
+      return;
+    }
+    closing.current = true;
+    setError(null);
+    void onSave(next, rows).catch((caught: unknown) => {
+      closing.current = false;
+      setError(messageOf(caught));
+    });
+  };
   return (
-    <Modal title="New headers" onClose={onClose}>
+    <Modal title={title} onClose={saveOnClose ? persist : onClose}>
       {hasCollection ? null : <p className="form-error">Choose a collection first.</p>}
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (!hasCollection) {
-            setError("Choose a collection first.");
-            return;
-          }
-          const next = name.trim();
-          if (!next) {
-            setError("Name the header set first.");
-            return;
-          }
-          setError(null);
-          void onSave(next, rows).catch((caught: unknown) => setError(messageOf(caught)));
+          persist();
         }}
       >
         <label className="field">
@@ -545,36 +810,53 @@ function HeaderPresetDialog({
 }
 
 function BodyPresetDialog({
+  title,
   hasCollection,
+  initialName = "",
+  initialBody,
+  saveOnClose = false,
   onClose,
   onSave,
 }: {
+  title: string;
   hasCollection: boolean;
+  initialName?: string;
+  initialBody?: RequestBody;
+  saveOnClose?: boolean;
   onClose: () => void;
   onSave: (name: string, body: RequestBody) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<RequestBody["kind"]>("json");
-  const [value, setValue] = useState("");
+  const [name, setName] = useState(initialName);
+  const [kind, setKind] = useState<RequestBody["kind"]>(initialBody?.kind ?? "json");
+  const [value, setValue] = useState(initialBody && initialBody.kind !== "none" ? initialBody.value : "");
   const [error, setError] = useState<string | null>(null);
+  const closing = useRef(false);
+  const persist = () => {
+    if (closing.current) return;
+    if (!hasCollection) {
+      setError("Choose a collection first.");
+      return;
+    }
+    const next = name.trim();
+    if (!next) {
+      setError("Name the body first.");
+      return;
+    }
+    closing.current = true;
+    setError(null);
+    const body: RequestBody = kind === "none" ? { kind: "none" } : { kind, value };
+    void onSave(next, body).catch((caught: unknown) => {
+      closing.current = false;
+      setError(messageOf(caught));
+    });
+  };
   return (
-    <Modal title="New body" onClose={onClose}>
+    <Modal title={title} onClose={saveOnClose ? persist : onClose}>
       {hasCollection ? null : <p className="form-error">Choose a collection first.</p>}
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (!hasCollection) {
-            setError("Choose a collection first.");
-            return;
-          }
-          const next = name.trim();
-          if (!next) {
-            setError("Name the body first.");
-            return;
-          }
-          setError(null);
-          const body: RequestBody = kind === "none" ? { kind: "none" } : { kind, value };
-          void onSave(next, body).catch((caught: unknown) => setError(messageOf(caught)));
+          persist();
         }}
       >
         <label className="field">
@@ -681,6 +963,110 @@ function PencilIcon() {
   return (
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <path d="M11.2 1.8l3 3L5.4 13.6 2 14l.4-3.4L11.2 1.8z" fill="none" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+type RowDrag = { sourceId: string; targetId: string | null; after: boolean };
+
+let rowDrag: RowDrag | null = null;
+const rowDragListeners = new Set<() => void>();
+const dropHandlers = new Map<string, (sourceId: string, after: boolean) => void>();
+
+function setRowDrag(next: RowDrag | null) {
+  rowDrag = next;
+  document.body.classList.toggle("row-dragging", next !== null);
+  rowDragListeners.forEach((listener) => listener());
+}
+
+function useRowDrag(): RowDrag | null {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const listener = () => setTick((value) => value + 1);
+    rowDragListeners.add(listener);
+    return () => {
+      rowDragListeners.delete(listener);
+    };
+  }, []);
+  return rowDrag;
+}
+
+function dropSlot(sourceId: string, clientY: number): { targetId: string; after: boolean } | null {
+  const source = document.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(sourceId)}"]`);
+  const column = source?.parentElement;
+  if (!column) return null;
+  const rows = [...column.querySelectorAll<HTMLElement>(":scope > [data-row-id]")];
+  let best: { targetId: string; after: boolean; score: number } | null = null;
+  for (const row of rows) {
+    const targetId = row.dataset.rowId;
+    if (!targetId) continue;
+    const rect = row.getBoundingClientRect();
+    if (rect.height === 0) continue;
+    const after = clientY > rect.top + rect.height / 2;
+    const edge = after ? rect.bottom : rect.top;
+    const inside = clientY >= rect.top && clientY <= rect.bottom;
+    const score = inside ? 0 : Math.abs(clientY - edge);
+    if (!best || score < best.score) best = { targetId, after, score };
+  }
+  return best ? { targetId: best.targetId, after: best.after } : null;
+}
+
+function beginRowDrag(event: ReactPointerEvent<HTMLElement>, sourceId: string) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const handle = event.currentTarget;
+  handle.setPointerCapture(event.pointerId);
+  const place = (clientY: number) => {
+    const slot = dropSlot(sourceId, clientY);
+    setRowDrag({ sourceId, targetId: slot?.targetId ?? null, after: slot?.after ?? false });
+  };
+  const move = (ev: PointerEvent) => place(ev.clientY);
+  const finish = (ev: PointerEvent) => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", finish);
+    handle.removeEventListener("pointercancel", finish);
+    const slot = dropSlot(sourceId, ev.clientY);
+    setRowDrag(null);
+    if (slot && slot.targetId !== sourceId) dropHandlers.get(slot.targetId)?.(sourceId, slot.after);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  place(event.clientY);
+}
+
+function dropOrder(ids: string[], sourceId: string, targetId: string, after: boolean): string[] | null {
+  if (sourceId === targetId) return null;
+  const from = ids.indexOf(sourceId);
+  let to = ids.indexOf(targetId);
+  if (from < 0 || to < 0) return null;
+  if (after) to += 1;
+  const insertAt = from < to ? to - 1 : to;
+  if (insertAt === from) return null;
+  const next = ids.slice();
+  const [item] = next.splice(from, 1);
+  next.splice(insertAt, 0, item);
+  return next;
+}
+
+function GripIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+      <circle cx="5" cy="4" r="1.15" fill="currentColor" />
+      <circle cx="11" cy="4" r="1.15" fill="currentColor" />
+      <circle cx="5" cy="8" r="1.15" fill="currentColor" />
+      <circle cx="11" cy="8" r="1.15" fill="currentColor" />
+      <circle cx="5" cy="12" r="1.15" fill="currentColor" />
+      <circle cx="11" cy="12" r="1.15" fill="currentColor" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7" fill="none" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }

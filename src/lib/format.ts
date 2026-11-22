@@ -46,6 +46,20 @@ export function isLoopbackUrl(raw: string): boolean {
   }
 }
 
+export function joinBaseUrl(base: string, path: string): string | null {
+  try {
+    const url = new URL(base.trim());
+    const suffix = path.startsWith("/") ? path : `/${path}`;
+    const prefix = url.pathname.replace(/\/$/, "");
+    url.pathname = prefix === "" ? suffix : `${prefix}${suffix}`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function replaceUrlPath(raw: string, path: string): string | null {
   try {
     const url = new URL(raw.trim());

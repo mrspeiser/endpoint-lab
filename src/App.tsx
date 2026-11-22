@@ -50,7 +50,7 @@ function App() {
       <div className="workspace">
         {state.mode === "request" ? (
           <div
-            className={`request-workspace${state.domainsCollapsed ? " domains-collapsed" : ""}${state.collectionsCollapsed ? " collections-collapsed" : ""}${state.pathsCollapsed ? " paths-collapsed" : ""}${state.headersCollapsed ? " headers-collapsed" : ""}${state.bodiesCollapsed ? " bodies-collapsed" : ""}`}
+            className={`request-workspace${state.domainsCollapsed ? " domains-collapsed" : ""}${state.collectionsCollapsed ? " collections-collapsed" : ""}${state.pathsCollapsed ? " paths-collapsed" : ""}${state.headersCollapsed ? " headers-collapsed" : ""}${state.bodiesCollapsed ? " bodies-collapsed" : ""}${state.historyCollapsed ? " history-collapsed" : ""}`}
           >
             <DomainsColumn />
             <CollectionsColumn />

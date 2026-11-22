@@ -20,6 +20,8 @@ import type {
   HistoryEntry,
   HttpRequest,
   HttpResponse,
+  LoadedBody,
+  LoadedHeaders,
   Method,
   RequestBody,
   StoreStatus,
@@ -59,6 +61,7 @@ export interface LabState {
   pathsCollapsed: boolean;
   headersCollapsed: boolean;
   bodiesCollapsed: boolean;
+  historyCollapsed: boolean;
   history: HistoryEntry[];
   runs: BenchSummary[];
   storeStatus: StoreStatus | null;
@@ -78,8 +81,10 @@ type Action =
   | { type: "selectHeader"; id: string }
   | { type: "selectBody"; id: string }
   | { type: "selectDomain"; id: string | null }
-  | { type: "selectCollection"; id: string | null }
-  | { type: "collapse"; domains?: boolean; collections?: boolean; paths?: boolean; headers?: boolean; bodies?: boolean }
+  | { type: "selectCollection"; id: string | null; url?: string | null }
+  | { type: "collapse"; domains?: boolean; collections?: boolean; paths?: boolean; headers?: boolean; bodies?: boolean; history?: boolean }
+  | { type: "order"; scope: "domains" | "collections" | "paths" | "headers" | "bodies" | "history"; ids: string[] }
+  | { type: "clearHistory" }
   | { type: "sending"; sending: boolean; invocationId: string | null }
   | { type: "response"; response: HttpResponse | null; error: ErrorView | null }
   | { type: "notice"; notice: string | null }
@@ -122,6 +127,7 @@ const initialState: LabState = {
   pathsCollapsed: false,
   headersCollapsed: false,
   bodiesCollapsed: false,
+  historyCollapsed: false,
   history: [],
   runs: [],
   storeStatus: null,
@@ -184,6 +190,7 @@ function reduce(state: LabState, action: Action): LabState {
     case "selectCollection":
       return {
         ...state,
+        request: action.url ? { ...state.request, url: action.url } : state.request,
         selectedCollectionId: action.id,
         selectedPathId: null,
         selectedHeaderId: null,
@@ -197,7 +204,12 @@ function reduce(state: LabState, action: Action): LabState {
         pathsCollapsed: action.paths ?? state.pathsCollapsed,
         headersCollapsed: action.headers ?? state.headersCollapsed,
         bodiesCollapsed: action.bodies ?? state.bodiesCollapsed,
+        historyCollapsed: action.history ?? state.historyCollapsed,
       };
+    case "order":
+      return applyOrder(state, action.scope, action.ids);
+    case "clearHistory":
+      return { ...state, history: [] };
     case "sending":
       return { ...state, sending: action.sending, invocationId: action.invocationId };
     case "response":
@@ -255,28 +267,75 @@ interface LabApi {
   createDomain: (name: string) => Promise<void>;
   renameDomain: (id: string, name: string) => Promise<void>;
   deleteDomain: (id: string) => Promise<void>;
-  createCollection: (domainId: string, name: string) => Promise<void>;
+  createCollection: (domainId: string, name: string, baseUrl: string) => Promise<void>;
   renameCollection: (domainId: string, id: string, name: string) => Promise<void>;
+  updateCollection: (domainId: string, id: string, name: string, baseUrl: string) => Promise<void>;
   deleteCollection: (domainId: string, id: string) => Promise<void>;
   savePath: (method: Method, path: string) => Promise<void>;
   updatePath: (pathId: string, method: Method, path: string) => Promise<void>;
   deletePath: (pathId: string) => Promise<void>;
   saveHeaders: (name: string, headers?: HeaderEntry[]) => Promise<void>;
-  updateHeaders: (name: string) => Promise<void>;
+  updateHeaders: (headerId: string, name: string, headers: HeaderEntry[]) => Promise<void>;
+  loadHeaderPreset: (headerId: string) => Promise<LoadedHeaders>;
   renameHeaders: (headerId: string, name: string) => Promise<void>;
   deleteHeaders: (headerId: string) => Promise<void>;
   openHeaders: (headerId: string) => Promise<void>;
   saveBody: (name: string, body?: RequestBody) => Promise<void>;
-  updateBody: (name: string) => Promise<void>;
+  updateBody: (bodyId: string, name: string, body: RequestBody) => Promise<void>;
+  loadBodyPreset: (bodyId: string) => Promise<LoadedBody>;
   renameBody: (bodyId: string, name: string) => Promise<void>;
   deleteBody: (bodyId: string) => Promise<void>;
   openBody: (bodyId: string) => Promise<void>;
   openHistory: (entry: HistoryEntry) => void;
+  clearHistory: () => Promise<void>;
+  reorderDomains: (ids: string[]) => Promise<void>;
+  reorderCollections: (domainId: string, ids: string[]) => Promise<void>;
+  reorderPaths: (ids: string[]) => Promise<void>;
+  reorderHeaders: (ids: string[]) => Promise<void>;
+  reorderBodies: (ids: string[]) => Promise<void>;
+  reorderHistory: (ids: string[]) => Promise<void>;
   runBench: () => Promise<void>;
   cancelBench: () => Promise<void>;
 }
 
 const LabContext = createContext<LabApi | null>(null);
+
+function ordered<T extends { id: string }>(items: T[], ids: string[]): T[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const next = ids.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
+  return next.length === items.length ? next : items;
+}
+
+function applyOrder(state: LabState, scope: "domains" | "collections" | "paths" | "headers" | "bodies" | "history", ids: string[]): LabState {
+  if (scope === "domains") return { ...state, domains: ordered(state.domains, ids) };
+  if (scope === "history") return { ...state, history: ordered(state.history, ids) };
+  if (scope === "collections") {
+    return {
+      ...state,
+      domains: state.domains.map((domain) =>
+        domain.id === state.selectedDomainId ? { ...domain, collections: ordered(domain.collections, ids) } : domain,
+      ),
+    };
+  }
+  return {
+    ...state,
+    domains: state.domains.map((domain) => {
+      if (domain.id !== state.selectedDomainId) return domain;
+      return {
+        ...domain,
+        collections: domain.collections.map((collection) => {
+          if (collection.id !== state.selectedCollectionId) return collection;
+          if (scope === "paths") return { ...collection, paths: ordered(collection.paths, ids) };
+          if (scope === "headers") return { ...collection, headers: ordered(collection.headers, ids) };
+          return { ...collection, bodies: ordered(collection.bodies, ids) };
+        }),
+      };
+    }),
+  };
+}
 
 function requireCollection(state: LabState): { domainId: string; collectionId: string } {
   if (!state.selectedDomainId || !state.selectedCollectionId) {
@@ -339,6 +398,19 @@ export function LabProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const apiValue = useMemo<LabApi>(() => {
+    const saveOrder = async (
+      scope: "domains" | "collections" | "paths" | "headers" | "bodies" | "history",
+      ids: string[],
+      write: () => Promise<void>,
+    ) => {
+      dispatch({ type: "order", scope, ids });
+      try {
+        await write();
+      } catch (error) {
+        dispatch({ type: "notice", notice: api.asError(error).message });
+        await refresh();
+      }
+    };
     return {
       state,
       dispatch,
@@ -385,13 +457,17 @@ export function LabProvider({ children }: { children: ReactNode }) {
         if (stateRef.current.selectedDomainId === id) dispatch({ type: "selectDomain", id: null });
         await refresh();
       },
-      async createCollection(domainId: string, name: string) {
-        const created = await api.createCollection(domainId, name);
-        dispatch({ type: "selectCollection", id: created.id });
+      async createCollection(domainId: string, name: string, baseUrl: string) {
+        const created = await api.createCollection(domainId, name, baseUrl);
+        dispatch({ type: "selectCollection", id: created.id, url: created.baseUrl });
         await refresh();
       },
       async renameCollection(domainId: string, id: string, name: string) {
         await api.renameCollection(domainId, id, name);
+        await refresh();
+      },
+      async updateCollection(domainId: string, id: string, name: string, baseUrl: string) {
+        await api.updateCollection(domainId, id, name, baseUrl);
         await refresh();
       },
       async deleteCollection(domainId: string, id: string) {
@@ -425,19 +501,14 @@ export function LabProvider({ children }: { children: ReactNode }) {
         }
         await refresh();
       },
-      async updateHeaders(name: string) {
-        const current = stateRef.current;
-        const selected = requireCollection(current);
-        if (!current.selectedHeaderId) return;
-        await api.updateHeaders(
-          selected.domainId,
-          selected.collectionId,
-          current.selectedHeaderId,
-          name,
-          current.request.headers,
-        );
-        dispatch({ type: "notice", notice: "Updated headers." });
+      async updateHeaders(headerId: string, name: string, headers: HeaderEntry[]) {
+        const selected = requireCollection(stateRef.current);
+        await api.updateHeaders(selected.domainId, selected.collectionId, headerId, name, headers);
         await refresh();
+      },
+      async loadHeaderPreset(headerId: string) {
+        const selected = requireCollection(stateRef.current);
+        return api.loadHeaders(selected.domainId, selected.collectionId, headerId);
       },
       async renameHeaders(headerId: string, name: string) {
         const selected = requireCollection(stateRef.current);
@@ -469,13 +540,14 @@ export function LabProvider({ children }: { children: ReactNode }) {
         }
         await refresh();
       },
-      async updateBody(name: string) {
-        const current = stateRef.current;
-        const selected = requireCollection(current);
-        if (!current.selectedBodyId) return;
-        await api.updateBody(selected.domainId, selected.collectionId, current.selectedBodyId, name, current.request.body);
-        dispatch({ type: "notice", notice: "Updated body." });
+      async updateBody(bodyId: string, name: string, body: RequestBody) {
+        const selected = requireCollection(stateRef.current);
+        await api.updateBody(selected.domainId, selected.collectionId, bodyId, name, body);
         await refresh();
+      },
+      async loadBodyPreset(bodyId: string) {
+        const selected = requireCollection(stateRef.current);
+        return api.loadBody(selected.domainId, selected.collectionId, bodyId);
       },
       async renameBody(bodyId: string, name: string) {
         const selected = requireCollection(stateRef.current);
@@ -491,6 +563,36 @@ export function LabProvider({ children }: { children: ReactNode }) {
         const selected = requireCollection(stateRef.current);
         const loaded = await api.loadBody(selected.domainId, selected.collectionId, bodyId);
         dispatch({ type: "applyBody", body: loaded.body, bodyId: loaded.id });
+      },
+      async clearHistory() {
+        dispatch({ type: "clearHistory" });
+        try {
+          await api.clearHistory();
+        } catch (error) {
+          dispatch({ type: "notice", notice: api.asError(error).message });
+          await refresh();
+        }
+      },
+      async reorderDomains(ids: string[]) {
+        await saveOrder("domains", ids, () => api.reorderDomains(ids));
+      },
+      async reorderCollections(domainId: string, ids: string[]) {
+        await saveOrder("collections", ids, () => api.reorderCollections(domainId, ids));
+      },
+      async reorderPaths(ids: string[]) {
+        const selected = requireCollection(stateRef.current);
+        await saveOrder("paths", ids, () => api.reorderPaths(selected.domainId, selected.collectionId, ids));
+      },
+      async reorderHeaders(ids: string[]) {
+        const selected = requireCollection(stateRef.current);
+        await saveOrder("headers", ids, () => api.reorderHeaders(selected.domainId, selected.collectionId, ids));
+      },
+      async reorderBodies(ids: string[]) {
+        const selected = requireCollection(stateRef.current);
+        await saveOrder("bodies", ids, () => api.reorderBodies(selected.domainId, selected.collectionId, ids));
+      },
+      async reorderHistory(ids: string[]) {
+        await saveOrder("history", ids, () => api.reorderHistory(ids));
       },
       openHistory(entry: HistoryEntry) {
         const masked = entry.request.headers.some((header) => header.secret) || entry.request.query.some((param) => param.secret);

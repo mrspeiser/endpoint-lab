@@ -92,16 +92,28 @@ export function deleteDomain(id: string): Promise<void> {
   return call("delete_domain", { id });
 }
 
-export function createCollection(domainId: string, name: string): Promise<CollectionSummary> {
-  return call("create_collection", { domainId, name });
+export function reorderDomains(ids: string[]): Promise<void> {
+  return call("reorder_domains", { ids });
+}
+
+export function createCollection(domainId: string, name: string, baseUrl: string): Promise<CollectionSummary> {
+  return call("create_collection", { domainId, name, baseUrl });
 }
 
 export function renameCollection(domainId: string, id: string, name: string): Promise<void> {
   return call("rename_collection", { domainId, id, name });
 }
 
+export function updateCollection(domainId: string, id: string, name: string, baseUrl: string): Promise<void> {
+  return call("update_collection", { domainId, id, name, baseUrl });
+}
+
 export function deleteCollection(domainId: string, id: string): Promise<void> {
   return call("delete_collection", { domainId, id });
+}
+
+export function reorderCollections(domainId: string, ids: string[]): Promise<void> {
+  return call("reorder_collections", { domainId, ids });
 }
 
 export function saveHeaders(
@@ -136,6 +148,10 @@ export function deleteHeaders(domainId: string, collectionId: string, headerId: 
   return call("delete_headers", { domainId, collectionId, headerId });
 }
 
+export function reorderHeaders(domainId: string, collectionId: string, ids: string[]): Promise<void> {
+  return call("reorder_headers", { domainId, collectionId, ids });
+}
+
 export function loadHeaders(
   domainId: string,
   collectionId: string,
@@ -165,6 +181,10 @@ export function updatePath(
 
 export function deletePath(domainId: string, collectionId: string, pathId: string): Promise<void> {
   return call("delete_path", { domainId, collectionId, pathId });
+}
+
+export function reorderPaths(domainId: string, collectionId: string, ids: string[]): Promise<void> {
+  return call("reorder_paths", { domainId, collectionId, ids });
 }
 
 export function saveBody(
@@ -199,12 +219,24 @@ export function deleteBody(domainId: string, collectionId: string, bodyId: strin
   return call("delete_body", { domainId, collectionId, bodyId });
 }
 
+export function reorderBodies(domainId: string, collectionId: string, ids: string[]): Promise<void> {
+  return call("reorder_bodies", { domainId, collectionId, ids });
+}
+
 export function loadBody(domainId: string, collectionId: string, bodyId: string): Promise<LoadedBody> {
   return call("load_body", { domainId, collectionId, bodyId });
 }
 
 export function listHistory(): Promise<HistoryEntry[]> {
   return call("list_history");
+}
+
+export function clearHistory(): Promise<void> {
+  return call("clear_history");
+}
+
+export function reorderHistory(ids: string[]): Promise<void> {
+  return call("reorder_history", { ids });
 }
 
 export function listBenchmarks(): Promise<BenchSummary[]> {

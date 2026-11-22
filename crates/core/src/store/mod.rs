@@ -7,6 +7,7 @@
 mod model;
 mod secrets;
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -131,13 +132,21 @@ impl Store {
         Ok(())
     }
 
-    pub fn create_collection(&mut self, domain_id: &str, name: String) -> Result<CollectionSummary, Error> {
+    pub fn reorder_domains(&mut self, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        apply_order(&mut doc.domains, &ids, |domain| &domain.id, "domain")?;
+        self.commit(doc)
+    }
+
+    pub fn create_collection(&mut self, domain_id: &str, name: String, base_url: String) -> Result<CollectionSummary, Error> {
         let name = require_name(&name, "collection name")?;
+        let base_url = normalize_base_url(&base_url)?;
         let mut doc = self.doc.clone();
         let domain = find_domain_mut(&mut doc, domain_id)?;
         let collection = Collection {
             id: uuid::Uuid::new_v4().to_string(),
             name,
+            base_url,
             paths: Vec::new(),
             headers: Vec::new(),
             bodies: Vec::new(),
@@ -153,6 +162,16 @@ impl Store {
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, id)?;
         collection.name = name;
+        self.commit(doc)
+    }
+
+    pub fn update_collection(&mut self, domain_id: &str, id: &str, name: String, base_url: String) -> Result<(), Error> {
+        let name = require_name(&name, "collection name")?;
+        let base_url = normalize_base_url(&base_url)?;
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, id)?;
+        collection.name = name;
+        collection.base_url = base_url;
         self.commit(doc)
     }
 
@@ -174,6 +193,13 @@ impl Store {
         self.commit(doc)?;
         secrets::delete_refs(secrets, &refs);
         Ok(())
+    }
+
+    pub fn reorder_collections(&mut self, domain_id: &str, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let domain = find_domain_mut(&mut doc, domain_id)?;
+        apply_order(&mut domain.collections, &ids, |collection| &collection.id, "collection")?;
+        self.commit(doc)
     }
 
     pub fn save_path(
@@ -475,6 +501,39 @@ impl Store {
         self.doc.history.clone()
     }
 
+    pub fn clear_history(&mut self) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        doc.history.clear();
+        self.commit(doc)
+    }
+
+    pub fn reorder_history(&mut self, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        apply_order(&mut doc.history, &ids, |entry| &entry.id, "history")?;
+        self.commit(doc)
+    }
+
+    pub fn reorder_paths(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        apply_order(&mut collection.paths, &ids, |path| &path.id, "path")?;
+        self.commit(doc)
+    }
+
+    pub fn reorder_headers(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        apply_order(&mut collection.headers, &ids, |headers| &headers.id, "headers")?;
+        self.commit(doc)
+    }
+
+    pub fn reorder_bodies(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        apply_order(&mut collection.bodies, &ids, |body| &body.id, "body")?;
+        self.commit(doc)
+    }
+
     pub fn record_benchmark(&mut self, summary: BenchSummary) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         doc.benchmarks.insert(0, summary);
@@ -569,6 +628,7 @@ fn migrate_legacy(legacy: LegacyDocument) -> Document {
             Collection {
                 id: collection.id,
                 name: collection.name,
+                base_url: String::new(),
                 paths: Vec::new(),
                 headers,
                 bodies,
@@ -592,6 +652,26 @@ fn migrate_legacy(legacy: LegacyDocument) -> Document {
     }
 }
 
+fn apply_order<T>(items: &mut Vec<T>, ids: &[String], id_of: impl Fn(&T) -> &str, label: &str) -> Result<(), Error> {
+    if ids.len() != items.len() {
+        return Err(Error::InvalidConfig(format!("{label} order must include every item")));
+    }
+    let mut seen = HashSet::new();
+    let mut next = Vec::with_capacity(items.len());
+    for id in ids {
+        if !seen.insert(id.as_str()) {
+            return Err(Error::InvalidConfig(format!("{label} order lists {id} more than once")));
+        }
+        let index = items
+            .iter()
+            .position(|item| id_of(item) == id)
+            .ok_or_else(|| Error::NotFound(format!("{label} {id}")))?;
+        next.push(items.remove(index));
+    }
+    *items = next;
+    Ok(())
+}
+
 fn find_domain_mut<'a>(doc: &'a mut Document, id: &str) -> Result<&'a mut Domain, Error> {
     doc.domains
         .iter_mut()
@@ -609,6 +689,27 @@ fn find_collection_mut<'a>(
         .iter_mut()
         .find(|collection| collection.id == id)
         .ok_or_else(|| Error::NotFound(format!("collection {id}")))
+}
+
+fn normalize_base_url(raw: &str) -> Result<String, Error> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidConfig("collection base url cannot be empty".into()));
+    }
+    let mut parsed = url::Url::parse(trimmed).map_err(|_| Error::InvalidConfig("collection base url is not valid".into()))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(Error::InvalidConfig("collection base url must be http or https".into()));
+    }
+    if parsed.host_str().is_none() {
+        return Err(Error::InvalidConfig("collection base url needs a host".into()));
+    }
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    let path = parsed.path().to_string();
+    if path.len() > 1 && path.ends_with('/') {
+        parsed.set_path(path.trim_end_matches('/'));
+    }
+    Ok(parsed.to_string())
 }
 
 fn normalize_path(raw: &str) -> Result<String, Error> {
@@ -742,7 +843,9 @@ mod tests {
         let secrets = MemorySecretStore::default();
         let mut store = Store::open(path.clone());
         let domain = store.create_domain("Local".into()).unwrap();
-        let collection = store.create_collection(&domain.id, "Auth".into()).unwrap();
+        let collection = store
+            .create_collection(&domain.id, "Auth".into(), "http://127.0.0.1:8080".into())
+            .unwrap();
         let marker = fixture_marker();
         let request = sample();
         let summary = store
@@ -835,7 +938,9 @@ mod tests {
         let path = dir.path().join("store.json");
         let mut store = Store::open(path);
         let domain = store.create_domain("Local".into()).unwrap();
-        let collection = store.create_collection(&domain.id, "Api".into()).unwrap();
+        let collection = store
+            .create_collection(&domain.id, "Api".into(), "http://127.0.0.1:8080".into())
+            .unwrap();
         let saved = store
             .save_path(&domain.id, &collection.id, Method::Get, "v1/users".into())
             .unwrap();
@@ -864,6 +969,110 @@ mod tests {
             .unwrap();
         assert_eq!(updated.method, Method::Delete);
         assert_eq!(updated.path, "/v1/users/1");
+    }
+
+    #[test]
+    fn collection_base_url_keeps_the_origin_and_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("store.json"));
+        let domain = store.create_domain("Local".into()).unwrap();
+        let created = store
+            .create_collection(&domain.id, "Api".into(), "http://127.0.0.1:8080/v1/?x=1".into())
+            .unwrap();
+        assert_eq!(created.base_url, "http://127.0.0.1:8080/v1");
+        assert!(store
+            .create_collection(&domain.id, "Blank".into(), "  ".into())
+            .is_err());
+        assert!(store
+            .create_collection(&domain.id, "Files".into(), "ftp://127.0.0.1/v1".into())
+            .is_err());
+        store
+            .update_collection(
+                &domain.id,
+                &created.id,
+                "Billing".into(),
+                "https://api.example.com/v2/".into(),
+            )
+            .unwrap();
+        let listed = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
+        assert_eq!(listed.collections[0].name, "Billing");
+        assert_eq!(listed.collections[0].base_url, "https://api.example.com/v2");
+    }
+
+    #[test]
+    fn saved_rows_keep_a_custom_order_and_history_can_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("store.json"));
+        let first = store.create_domain("Billing".into()).unwrap();
+        let second = store.create_domain("Local".into()).unwrap();
+        store.reorder_domains(vec![second.id.clone(), first.id.clone()]).unwrap();
+        let names: Vec<_> = store.list_domains().into_iter().map(|domain| domain.name).collect();
+        assert_eq!(names, ["Local", "Billing"]);
+
+        let alpha = store
+            .create_collection(&second.id, "Alpha".into(), "http://127.0.0.1:8080".into())
+            .unwrap();
+        let beta = store
+            .create_collection(&second.id, "Beta".into(), "http://127.0.0.1:8080".into())
+            .unwrap();
+        store
+            .reorder_collections(&second.id, vec![beta.id.clone(), alpha.id.clone()])
+            .unwrap();
+        let collections = store.list_domains().into_iter().find(|domain| domain.id == second.id).unwrap();
+        assert_eq!(
+            collections.collections.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(),
+            ["Beta", "Alpha"]
+        );
+
+        let users = store
+            .save_path(&second.id, &beta.id, Method::Get, "/users".into())
+            .unwrap();
+        let health = store
+            .save_path(&second.id, &beta.id, Method::Get, "/health".into())
+            .unwrap();
+        store
+            .reorder_paths(&second.id, &beta.id, vec![health.id.clone(), users.id.clone()])
+            .unwrap();
+        let paths = store
+            .list_domains()
+            .into_iter()
+            .find(|domain| domain.id == second.id)
+            .unwrap()
+            .collections
+            .into_iter()
+            .find(|collection| collection.id == beta.id)
+            .unwrap();
+        assert_eq!(
+            paths.paths.iter().map(|item| item.path.as_str()).collect::<Vec<_>>(),
+            ["/health", "/users"]
+        );
+        assert!(store.reorder_domains(vec![second.id.clone()]).is_err());
+
+        let request = HttpRequest {
+            method: Method::Get,
+            url: "http://127.0.0.1/health".into(),
+            headers: Vec::new(),
+            query: Vec::new(),
+            body: RequestBody::None,
+            timeout_ms: 1000,
+            url_secret_refs: Vec::new(),
+        };
+        let outcome = HistoryOutcome {
+            ok: true,
+            status: Some(200),
+            elapsed_ms: Some(1),
+            error: None,
+        };
+        store.record_history(&request, outcome.clone()).unwrap();
+        store.record_history(&request, outcome).unwrap();
+        let history = store.list_history();
+        assert_eq!(history.len(), 2);
+        store
+            .reorder_history(vec![history[1].id.clone(), history[0].id.clone()])
+            .unwrap();
+        assert_eq!(store.list_history()[0].id, history[1].id);
+        store.clear_history().unwrap();
+        assert!(store.list_history().is_empty());
     }
 
     /// Built from plain fragments so the test source never contains a credential literal.

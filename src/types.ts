@@ -172,6 +172,7 @@ export interface PathSummary {
 export interface CollectionSummary {
   id: string;
   name: string;
+  baseUrl: string;
   paths: PathSummary[];
   headers: HeaderSummary[];
   bodies: BodySummary[];

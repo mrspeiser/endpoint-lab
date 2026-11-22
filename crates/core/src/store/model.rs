@@ -56,6 +56,8 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
     pub paths: Vec<SavedPath>,
     #[serde(default)]
     pub headers: Vec<SavedHeaderSet>,
@@ -68,6 +70,7 @@ impl Collection {
         CollectionSummary {
             id: self.id.clone(),
             name: self.name.clone(),
+            base_url: self.base_url.clone(),
             paths: self.paths.iter().map(SavedPath::summary).collect(),
             headers: self.headers.iter().map(SavedHeaderSet::summary).collect(),
             bodies: self.bodies.iter().map(SavedBody::summary).collect(),
@@ -157,6 +160,7 @@ pub struct DomainSummary {
 pub struct CollectionSummary {
     pub id: String,
     pub name: String,
+    pub base_url: String,
     pub paths: Vec<PathSummary>,
     pub headers: Vec<HeaderSummary>,
     pub bodies: Vec<BodySummary>,
