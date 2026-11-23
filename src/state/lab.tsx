@@ -274,17 +274,20 @@ interface LabApi {
   savePath: (method: Method, path: string) => Promise<void>;
   updatePath: (pathId: string, method: Method, path: string) => Promise<void>;
   deletePath: (pathId: string) => Promise<void>;
+  importPaths: (raw: string) => Promise<void>;
   saveHeaders: (name: string, headers?: HeaderEntry[]) => Promise<void>;
   updateHeaders: (headerId: string, name: string, headers: HeaderEntry[]) => Promise<void>;
   loadHeaderPreset: (headerId: string) => Promise<LoadedHeaders>;
   renameHeaders: (headerId: string, name: string) => Promise<void>;
   deleteHeaders: (headerId: string) => Promise<void>;
+  importHeaders: (raw: string) => Promise<void>;
   openHeaders: (headerId: string) => Promise<void>;
   saveBody: (name: string, body?: RequestBody) => Promise<void>;
   updateBody: (bodyId: string, name: string, body: RequestBody) => Promise<void>;
   loadBodyPreset: (bodyId: string) => Promise<LoadedBody>;
   renameBody: (bodyId: string, name: string) => Promise<void>;
   deleteBody: (bodyId: string) => Promise<void>;
+  importBodies: (raw: string) => Promise<void>;
   openBody: (bodyId: string) => Promise<void>;
   openHistory: (entry: HistoryEntry) => void;
   clearHistory: () => Promise<void>;
@@ -490,6 +493,12 @@ export function LabProvider({ children }: { children: ReactNode }) {
         await api.deletePath(selected.domainId, selected.collectionId, pathId);
         await refresh();
       },
+      async importPaths(raw: string) {
+        const selected = requireCollection(stateRef.current);
+        const count = await api.importPaths(selected.domainId, selected.collectionId, raw);
+        dispatch({ type: "notice", notice: `Imported ${count} paths.` });
+        await refresh();
+      },
       async saveHeaders(name: string, headers?: HeaderEntry[]) {
         const current = stateRef.current;
         const selected = requireCollection(current);
@@ -518,6 +527,12 @@ export function LabProvider({ children }: { children: ReactNode }) {
       async deleteHeaders(headerId: string) {
         const selected = requireCollection(stateRef.current);
         await api.deleteHeaders(selected.domainId, selected.collectionId, headerId);
+        await refresh();
+      },
+      async importHeaders(raw: string) {
+        const selected = requireCollection(stateRef.current);
+        const count = await api.importHeaders(selected.domainId, selected.collectionId, raw);
+        dispatch({ type: "notice", notice: `Imported ${count} header sets.` });
         await refresh();
       },
       async openHeaders(headerId: string) {
@@ -557,6 +572,12 @@ export function LabProvider({ children }: { children: ReactNode }) {
       async deleteBody(bodyId: string) {
         const selected = requireCollection(stateRef.current);
         await api.deleteBody(selected.domainId, selected.collectionId, bodyId);
+        await refresh();
+      },
+      async importBodies(raw: string) {
+        const selected = requireCollection(stateRef.current);
+        const count = await api.importBodies(selected.domainId, selected.collectionId, raw);
+        dispatch({ type: "notice", notice: `Imported ${count} bodies.` });
         await refresh();
       },
       async openBody(bodyId: string) {

@@ -232,6 +232,20 @@ pub fn load_headers(
 }
 
 #[tauri::command]
+pub fn import_headers(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    raw: String,
+) -> Result<u32, ErrorView> {
+    let secrets = state.secrets.clone();
+    lock(&state.store)
+        .import_headers(secrets.as_ref(), &domain_id, &collection_id, &raw)
+        .map(|items| items.len() as u32)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
 pub fn save_path(
     state: State<'_, AppState>,
     domain_id: String,
@@ -267,6 +281,19 @@ pub fn delete_path(
 ) -> Result<(), ErrorView> {
     lock(&state.store)
         .delete_path(&domain_id, &collection_id, &path_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn import_paths(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    raw: String,
+) -> Result<u32, ErrorView> {
+    lock(&state.store)
+        .import_paths(&domain_id, &collection_id, &raw)
+        .map(|items| items.len() as u32)
         .map_err(Error::view)
 }
 
@@ -331,6 +358,19 @@ pub fn delete_body(
 ) -> Result<(), ErrorView> {
     lock(&state.store)
         .delete_body(&domain_id, &collection_id, &body_id)
+        .map_err(Error::view)
+}
+
+#[tauri::command]
+pub fn import_bodies(
+    state: State<'_, AppState>,
+    domain_id: String,
+    collection_id: String,
+    raw: String,
+) -> Result<u32, ErrorView> {
+    lock(&state.store)
+        .import_bodies(&domain_id, &collection_id, &raw)
+        .map(|items| items.len() as u32)
         .map_err(Error::view)
 }
 

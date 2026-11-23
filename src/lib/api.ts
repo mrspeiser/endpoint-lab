@@ -148,6 +148,10 @@ export function deleteHeaders(domainId: string, collectionId: string, headerId: 
   return call("delete_headers", { domainId, collectionId, headerId });
 }
 
+export function importHeaders(domainId: string, collectionId: string, raw: string): Promise<number> {
+  return call("import_headers", { domainId, collectionId, raw });
+}
+
 export function reorderHeaders(domainId: string, collectionId: string, ids: string[]): Promise<void> {
   return call("reorder_headers", { domainId, collectionId, ids });
 }
@@ -181,6 +185,10 @@ export function updatePath(
 
 export function deletePath(domainId: string, collectionId: string, pathId: string): Promise<void> {
   return call("delete_path", { domainId, collectionId, pathId });
+}
+
+export function importPaths(domainId: string, collectionId: string, raw: string): Promise<number> {
+  return call("import_paths", { domainId, collectionId, raw });
 }
 
 export function reorderPaths(domainId: string, collectionId: string, ids: string[]): Promise<void> {
@@ -217,6 +225,10 @@ export function updateBody(
 
 export function deleteBody(domainId: string, collectionId: string, bodyId: string): Promise<void> {
   return call("delete_body", { domainId, collectionId, bodyId });
+}
+
+export function importBodies(domainId: string, collectionId: string, raw: string): Promise<number> {
+  return call("import_bodies", { domainId, collectionId, raw });
 }
 
 export function reorderBodies(domainId: string, collectionId: string, ids: string[]): Promise<void> {

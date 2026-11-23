@@ -310,6 +310,7 @@ button.ghost:disabled { opacity: 0.45; }
 .saved-row .inline-form { flex: 1; min-width: 0; flex-wrap: nowrap; }
 
 .preset-actions, .path-add, .path-create-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.import-file { display: none; }
 
 .collection-create, .path-create { display: flex; flex-direction: column; gap: 6px; }
 

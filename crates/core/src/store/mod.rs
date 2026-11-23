@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bench::BenchSummary;
 use crate::error::Error;
-use crate::http::{redact_request, secret_values, HttpRequest};
+use crate::http::{redact_request, secret_values, HeaderEntry, HttpRequest, Method, RequestBody};
 use crate::limits::{BENCHMARK_HISTORY_LIMIT, HISTORY_LIMIT};
 use crate::util::{now_ms, scrub, storage};
 use model::{
@@ -389,6 +389,117 @@ impl Store {
         Ok(summary)
     }
 
+    pub fn import_paths(&mut self, domain_id: &str, collection_id: &str, raw: &str) -> Result<Vec<PathSummary>, Error> {
+        let parsed: PathImport = read_import(raw)?;
+        let mut prepared = Vec::with_capacity(parsed.paths.len());
+        for (index, item) in parsed.paths.into_iter().enumerate() {
+            let path = normalize_path(&item.path).map_err(|error| annotate(&format!("paths[{index}].path"), error))?;
+            prepared.push((item.method, path));
+        }
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let mut summaries = Vec::with_capacity(prepared.len());
+        for (method, path) in prepared {
+            let saved = SavedPath {
+                id: uuid::Uuid::new_v4().to_string(),
+                method,
+                path,
+                created_at_ms: now_ms(),
+                updated_at_ms: now_ms(),
+            };
+            summaries.push(saved.summary());
+            collection.paths.push(saved);
+        }
+        self.commit(doc)?;
+        Ok(summaries)
+    }
+
+    pub fn import_headers(
+        &mut self,
+        secrets: &dyn SecretStore,
+        domain_id: &str,
+        collection_id: &str,
+        raw: &str,
+    ) -> Result<Vec<HeaderSummary>, Error> {
+        let parsed: HeaderImport = read_import(raw)?;
+        self.collection(domain_id, collection_id)?;
+        let mut prepared = Vec::with_capacity(parsed.headers.len());
+        for (set_index, set) in parsed.headers.into_iter().enumerate() {
+            let name = require_name(&set.name, "header name")
+                .map_err(|error| annotate(&format!("headers[{set_index}].name"), error))?;
+            let mut rows = Vec::with_capacity(set.headers.len());
+            for (row_index, row) in set.headers.into_iter().enumerate() {
+                let header_name = row.name.trim();
+                if header_name.is_empty() {
+                    return Err(Error::InvalidConfig(format!(
+                        "headers[{set_index}].headers[{row_index}].name: header row needs a name"
+                    )));
+                }
+                rows.push(HeaderEntry {
+                    name: header_name.to_string(),
+                    value: row.value,
+                    enabled: row.enabled,
+                    secret: row.secret,
+                    secret_ref: None,
+                });
+            }
+            let sealed = secrets::seal_headers(&rows, secrets)?;
+            prepared.push((name, sealed));
+        }
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let mut summaries = Vec::with_capacity(prepared.len());
+        for (name, headers) in prepared {
+            let saved = SavedHeaderSet {
+                id: uuid::Uuid::new_v4().to_string(),
+                name,
+                headers,
+                created_at_ms: now_ms(),
+                updated_at_ms: now_ms(),
+            };
+            summaries.push(saved.summary());
+            collection.headers.push(saved);
+        }
+        self.commit(doc)?;
+        Ok(summaries)
+    }
+
+    pub fn import_bodies(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        raw: &str,
+    ) -> Result<Vec<BodySummary>, Error> {
+        let parsed: BodyImport = read_import(raw)?;
+        let mut prepared = Vec::with_capacity(parsed.bodies.len());
+        for (index, item) in parsed.bodies.into_iter().enumerate() {
+            let name = require_name(&item.name, "body name")
+                .map_err(|error| annotate(&format!("bodies[{index}].name"), error))?;
+            let body = match item.body {
+                ImportBody::None => RequestBody::None,
+                ImportBody::Json { value } => RequestBody::Json { value },
+                ImportBody::Text { value } => RequestBody::Text { value },
+            };
+            prepared.push((name, body));
+        }
+        let mut doc = self.doc.clone();
+        let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
+        let mut summaries = Vec::with_capacity(prepared.len());
+        for (name, body) in prepared {
+            let saved = SavedBody {
+                id: uuid::Uuid::new_v4().to_string(),
+                name,
+                body,
+                created_at_ms: now_ms(),
+                updated_at_ms: now_ms(),
+            };
+            summaries.push(saved.summary());
+            collection.bodies.push(saved);
+        }
+        self.commit(doc)?;
+        Ok(summaries)
+    }
+
     pub fn rename_body(
         &mut self,
         domain_id: &str,
@@ -582,6 +693,83 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     fs::write(&tmp, bytes).map_err(storage)?;
     fs::rename(&tmp, path).map_err(storage)?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PathImport {
+    paths: Vec<PathImportItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PathImportItem {
+    method: Method,
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeaderImport {
+    headers: Vec<HeaderSetImport>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeaderSetImport {
+    name: String,
+    headers: Vec<HeaderRowImport>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeaderRowImport {
+    name: String,
+    value: String,
+    #[serde(default = "import_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    secret: bool,
+}
+
+fn import_enabled() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BodyImport {
+    bodies: Vec<BodyImportItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BodyImportItem {
+    name: String,
+    body: ImportBody,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum ImportBody {
+    None,
+    Json { value: String },
+    Text { value: String },
+}
+
+fn read_import<'de, T: Deserialize<'de>>(raw: &'de str) -> Result<T, Error> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidConfig("import json cannot be empty".into()));
+    }
+    let mut deserializer = serde_json::Deserializer::from_str(trimmed);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        Error::InvalidConfig(format!("{}: {}", error.path(), error.inner()))
+    })
+}
+
+fn annotate(path: &str, error: Error) -> Error {
+    Error::InvalidConfig(format!("{path}: {error}"))
 }
 
 fn require_name(name: &str, label: &str) -> Result<String, Error> {
@@ -1073,6 +1261,70 @@ mod tests {
         assert_eq!(store.list_history()[0].id, history[1].id);
         store.clear_history().unwrap();
         assert!(store.list_history().is_empty());
+    }
+
+    #[test]
+    fn json_import_appends_valid_items_and_rejects_a_bad_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.json");
+        let secrets = MemorySecretStore::default();
+        let mut store = Store::open(path.clone());
+        let domain = store.create_domain("Local".into()).unwrap();
+        let collection = store
+            .create_collection(&domain.id, "Api".into(), "http://127.0.0.1:8080/v1".into())
+            .unwrap();
+        let marker = fixture_marker();
+        let paths = store
+            .import_paths(
+                &domain.id,
+                &collection.id,
+                r#"{"paths":[{"method":"GET","path":"v1/users"},{"method":"POST","path":"https://example.com/v1/items?x=1"}]}"#,
+            )
+            .unwrap();
+        assert_eq!(paths[0].path, "/v1/users");
+        assert_eq!(paths[1].method, Method::Post);
+        assert_eq!(paths[1].path, "/v1/items");
+
+        let headers = format!(
+            r#"{{"headers":[{{"name":"Auth","headers":[{{"name":"Authorization","value":"Bearer {marker}","secret":true}}]}}]}}"#
+        );
+        store
+            .import_headers(&secrets, &domain.id, &collection.id, &headers)
+            .unwrap();
+        let bodies = store
+            .import_bodies(
+                &domain.id,
+                &collection.id,
+                r#"{"bodies":[{"name":"Create","body":{"kind":"json","value":"{\"name\":\"ada\"}"}},{"name":"Empty","body":{"kind":"none"}}]}"#,
+            )
+            .unwrap();
+        assert_eq!(bodies[0].kind, "json");
+        assert_eq!(bodies[1].kind, "none");
+
+        let listed = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
+        let saved = listed.collections.into_iter().find(|item| item.id == collection.id).unwrap();
+        assert_eq!(saved.paths.len(), 2);
+        assert_eq!(saved.headers.len(), 1);
+        assert_eq!(saved.bodies.len(), 2);
+
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(!on_disk.contains(&marker), "{on_disk}");
+
+        let rejected = store.import_paths(
+            &domain.id,
+            &collection.id,
+            r#"{"paths":[{"method":"GET","path":"/ok","extra":true}]}"#,
+        );
+        assert!(rejected.is_err());
+        let bad_method = store.import_paths(
+            &domain.id,
+            &collection.id,
+            r#"{"paths":[{"method":"OPTIONS","path":"/ok"}]}"#,
+        );
+        assert!(bad_method.is_err());
+        let after = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
+        let still = after.collections.into_iter().find(|item| item.id == collection.id).unwrap();
+        assert_eq!(still.paths.len(), 2);
     }
 
     /// Built from plain fragments so the test source never contains a credential literal.

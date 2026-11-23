@@ -6,6 +6,26 @@ import type { DomainSummary, HeaderEntry, LoadedBody, LoadedHeaders, Method, Req
 import { KeyValueTable } from "../request/KeyValueTable";
 
 const METHODS: Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
+const PATH_IMPORT = `{
+  "paths": [
+    { "method": "GET", "path": "/v1/users" }
+  ]
+}`;
+const HEADER_IMPORT = `{
+  "headers": [
+    {
+      "name": "JSON",
+      "headers": [
+        { "name": "Accept", "value": "application/json" }
+      ]
+    }
+  ]
+}`;
+const BODY_IMPORT = `{
+  "bodies": [
+    { "name": "Create user", "body": { "kind": "json", "value": "{\\"name\\":\\"ada\\"}" } }
+  ]
+}`;
 
 export function DomainsColumn() {
   const lab = useLab();
@@ -192,6 +212,7 @@ export function PathsColumn() {
   const collection = selectedCollection(state.domains, state.selectedDomainId, state.selectedCollectionId);
   const [method, setMethod] = useState<Method>("GET");
   const [path, setPath] = useState("");
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (state.pathsCollapsed) {
@@ -236,9 +257,19 @@ export function PathsColumn() {
             ))}
           </select>
           <button type="submit">Add</button>
+          <button type="button" onClick={() => setImporting(true)}>Import</button>
         </div>
         <input value={path} placeholder="/v1/users" aria-label="Path" onChange={(event) => setPath(event.target.value)} />
       </form>
+      {importing ? (
+        <ImportDialog
+          title="Import paths"
+          placeholder={PATH_IMPORT}
+          hasCollection={Boolean(collection)}
+          onClose={() => setImporting(false)}
+          onImport={(raw) => lab.importPaths(raw)}
+        />
+      ) : null}
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.paths.length === 0 ? <p className="muted">No saved paths.</p> : null}
       {collection?.paths.map((item) => (
@@ -285,7 +316,7 @@ export function HeadersColumn() {
   const lab = useLab();
   const { state, dispatch } = lab;
   const collection = selectedCollection(state.domains, state.selectedDomainId, state.selectedCollectionId);
-  const [dialog, setDialog] = useState<null | "new" | "from">(null);
+  const [dialog, setDialog] = useState<null | "new" | "from" | "import">(null);
   const [editing, setEditing] = useState<LoadedHeaders | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -308,6 +339,7 @@ export function HeadersColumn() {
       <div className="preset-actions">
         <button type="button" onClick={() => setDialog("new")}>New</button>
         <button type="button" onClick={() => setDialog("from")}>From request</button>
+        <button type="button" onClick={() => setDialog("import")}>Import</button>
       </div>
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.headers.length === 0 ? <p className="muted">No saved headers.</p> : null}
@@ -370,6 +402,15 @@ export function HeadersColumn() {
           }}
         />
       ) : null}
+      {dialog === "import" ? (
+        <ImportDialog
+          title="Import headers"
+          placeholder={HEADER_IMPORT}
+          hasCollection={Boolean(collection)}
+          onClose={() => setDialog(null)}
+          onImport={(raw) => lab.importHeaders(raw)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -378,7 +419,7 @@ export function BodiesColumn() {
   const lab = useLab();
   const { state, dispatch } = lab;
   const collection = selectedCollection(state.domains, state.selectedDomainId, state.selectedCollectionId);
-  const [dialog, setDialog] = useState<null | "new" | "from">(null);
+  const [dialog, setDialog] = useState<null | "new" | "from" | "import">(null);
   const [editing, setEditing] = useState<LoadedBody | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -401,6 +442,7 @@ export function BodiesColumn() {
       <div className="preset-actions">
         <button type="button" onClick={() => setDialog("new")}>New</button>
         <button type="button" onClick={() => setDialog("from")}>From request</button>
+        <button type="button" onClick={() => setDialog("import")}>Import</button>
       </div>
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.bodies.length === 0 ? <p className="muted">No saved bodies.</p> : null}
@@ -462,6 +504,15 @@ export function BodiesColumn() {
             await lab.saveBody(name);
             setDialog(null);
           }}
+        />
+      ) : null}
+      {dialog === "import" ? (
+        <ImportDialog
+          title="Import bodies"
+          placeholder={BODY_IMPORT}
+          hasCollection={Boolean(collection)}
+          onClose={() => setDialog(null)}
+          onImport={(raw) => lab.importBodies(raw)}
         />
       ) : null}
     </section>
@@ -886,6 +937,65 @@ function BodyPresetDialog({
           Save
         </button>
       </form>
+    </Modal>
+  );
+}
+
+function ImportDialog({
+  title,
+  placeholder,
+  hasCollection,
+  onClose,
+  onImport,
+}: {
+  title: string;
+  placeholder: string;
+  hasCollection: boolean;
+  onClose: () => void;
+  onImport: (raw: string) => Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <Modal title={title} onClose={onClose}>
+      {hasCollection ? null : <p className="form-error">Choose a collection first.</p>}
+      <textarea
+        aria-label="Import JSON"
+        value={text}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <div className="preset-actions">
+        <button type="button" onClick={() => fileRef.current?.click()}>
+          Choose file
+        </button>
+        <input
+          ref={fileRef}
+          className="import-file"
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file) return;
+            void file.text().then(setText).catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+        <button
+          type="button"
+          className="primary"
+          disabled={!hasCollection || text.trim().length === 0}
+          onClick={() => {
+            setError(null);
+            void onImport(text).then(onClose).catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        >
+          Import
+        </button>
+      </div>
+      {error ? <p className="form-error">{error}</p> : null}
     </Modal>
   );
 }
