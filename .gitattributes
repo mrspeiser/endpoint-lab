@@ -1,0 +1,14 @@
+# Ensure GitHub classifies this as a Rust project
+# Documentation shouldn't count toward language stats
+*.md linguist-documentation
+
+# Config files shouldn't count toward language stats
+*.json linguist-generated
+*.toml linguist-generated
+*.lock linguist-generated
+
+# CSS is supporting code, not primary
+*.css linguist-detectable=false
+
+# Mark Rust as the primary language
+*.rs linguist-detectable=true linguist-language=Rust
