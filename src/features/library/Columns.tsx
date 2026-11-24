@@ -50,7 +50,7 @@ export function DomainsColumn() {
         </button>
       </header>
       <form
-        className="inline-form"
+        className="column-create"
         onSubmit={(event) => {
           event.preventDefault();
           const next = name.trim();
@@ -59,8 +59,10 @@ export function DomainsColumn() {
           void lab.createDomain(next).then(() => setName("")).catch((caught: unknown) => setError(messageOf(caught)));
         }}
       >
+        <ActionMenu>
+          <button type="submit" role="menuitem">Add</button>
+        </ActionMenu>
         <input value={name} placeholder="New domain" aria-label="New domain name" onChange={(event) => setName(event.target.value)} />
-        <button type="submit">Add</button>
       </form>
       {state.domains.length === 0 ? <p className="muted">No domains yet.</p> : null}
       {state.domains.map((domain) => (
@@ -145,15 +147,15 @@ export function CollectionsColumn() {
             .catch((caught: unknown) => setError(messageOf(caught)));
         }}
       >
-        <div className="collection-create-row">
-          <input
-            value={name}
-            placeholder="New collection"
-            aria-label="New collection name"
-            onChange={(event) => setName(event.target.value)}
-          />
-          <button type="submit">Add</button>
-        </div>
+        <ActionMenu>
+          <button type="submit" role="menuitem">Add</button>
+        </ActionMenu>
+        <input
+          value={name}
+          placeholder="New collection"
+          aria-label="New collection name"
+          onChange={(event) => setName(event.target.value)}
+        />
         <input
           value={baseUrl}
           placeholder="http://127.0.0.1:8080/v1"
@@ -250,15 +252,15 @@ export function PathsColumn() {
             .catch((caught: unknown) => setError(messageOf(caught)));
         }}
       >
-        <div className="path-create-row">
-          <select aria-label="Method" value={method} onChange={(event) => setMethod(event.target.value as Method)}>
-            {METHODS.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-          <button type="submit">Add</button>
-          <button type="button" onClick={() => setImporting(true)}>Import</button>
-        </div>
+        <ActionMenu>
+          <button type="submit" role="menuitem">Add</button>
+          <button type="button" role="menuitem" onClick={() => setImporting(true)}>Import</button>
+        </ActionMenu>
+        <select aria-label="Method" value={method} onChange={(event) => setMethod(event.target.value as Method)}>
+          {METHODS.map((item) => (
+            <option key={item}>{item}</option>
+          ))}
+        </select>
         <input value={path} placeholder="/v1/users" aria-label="Path" onChange={(event) => setPath(event.target.value)} />
       </form>
       {importing ? (
@@ -336,11 +338,11 @@ export function HeadersColumn() {
           Hide
         </button>
       </header>
-      <div className="preset-actions">
-        <button type="button" onClick={() => setDialog("new")}>New</button>
-        <button type="button" onClick={() => setDialog("from")}>From request</button>
-        <button type="button" onClick={() => setDialog("import")}>Import</button>
-      </div>
+      <ActionMenu>
+        <button type="button" role="menuitem" onClick={() => setDialog("new")}>Add</button>
+        <button type="button" role="menuitem" onClick={() => setDialog("from")}>From request</button>
+        <button type="button" role="menuitem" onClick={() => setDialog("import")}>Import</button>
+      </ActionMenu>
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.headers.length === 0 ? <p className="muted">No saved headers.</p> : null}
       {collection?.headers.map((item) => (
@@ -439,11 +441,11 @@ export function BodiesColumn() {
           Hide
         </button>
       </header>
-      <div className="preset-actions">
-        <button type="button" onClick={() => setDialog("new")}>New</button>
-        <button type="button" onClick={() => setDialog("from")}>From request</button>
-        <button type="button" onClick={() => setDialog("import")}>Import</button>
-      </div>
+      <ActionMenu>
+        <button type="button" role="menuitem" onClick={() => setDialog("new")}>Add</button>
+        <button type="button" role="menuitem" onClick={() => setDialog("from")}>From request</button>
+        <button type="button" role="menuitem" onClick={() => setDialog("import")}>Import</button>
+      </ActionMenu>
       {!collection ? <p className="muted">Select a collection.</p> : null}
       {collection && collection.bodies.length === 0 ? <p className="muted">No saved bodies.</p> : null}
       {collection?.bodies.map((item) => (
@@ -941,6 +943,47 @@ function BodyPresetDialog({
   );
 }
 
+function ActionMenu({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="action-menu" ref={root}>
+      <button
+        type="button"
+        className="icon"
+        aria-label="Open add menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MenuIcon />
+      </button>
+      {open ? (
+        <div className="action-menu-panel" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ImportDialog({
   title,
   placeholder,
@@ -1158,6 +1201,14 @@ function dropOrder(ids: string[], sourceId: string, targetId: string, after: boo
   const [item] = next.splice(from, 1);
   next.splice(insertAt, 0, item);
   return next;
+}
+
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M2.5 4h11M2.5 8h11M2.5 12h11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function GripIcon() {
