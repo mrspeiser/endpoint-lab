@@ -2,7 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import App from "./App";
+import { EnvironmentProvider } from "./state/environment";
 import { LabProvider } from "./state/lab";
+import { SettingsProvider } from "./state/settings";
 
 const root = document.getElementById("root") as HTMLElement;
 
@@ -25,8 +27,12 @@ new MutationObserver((records) => {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <LabProvider>
-      <App />
-    </LabProvider>
+    <SettingsProvider>
+      <EnvironmentProvider>
+        <LabProvider>
+          <App />
+        </LabProvider>
+      </EnvironmentProvider>
+    </SettingsProvider>
   </React.StrictMode>,
 );

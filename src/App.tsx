@@ -1,14 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { BenchmarkPane } from "./features/benchmark/BenchmarkPane";
+import { EnvironmentModal } from "./features/environment/EnvironmentModal";
+import { ExportModal } from "./features/export/ExportModal";
 import { BodiesColumn, CollectionsColumn, DomainsColumn, HeadersColumn, HistoryColumn, PathsColumn } from "./features/library/Columns";
 import { RequestPane } from "./features/request/RequestPane";
 import { ResponseView } from "./features/request/ResponseView";
+import { SettingsModal } from "./features/settings/SettingsModal";
 import { useLab } from "./state/lab";
 import "./styles.css";
 
 function App() {
   const { state, dispatch, send } = useLab();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showEnvironment, setShowEnvironment] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -39,6 +45,17 @@ function App() {
             Benchmark
           </button>
         </div>
+        <div className="topbar-actions">
+          <button type="button" onClick={() => setShowEnvironment(true)} title="Environment Variables">
+            🔧 Environment
+          </button>
+          <button type="button" onClick={() => setShowExport(true)} title="Export">
+            📤 Export
+          </button>
+          <button type="button" onClick={() => setShowSettings(true)} title="Settings">
+            ⚙️ Settings
+          </button>
+        </div>
         <span className="engine-tag">Rust engine</span>
       </header>
       {state.notice ? <div className="banner info">{state.notice}</div> : null}
@@ -65,6 +82,9 @@ function App() {
           <BenchmarkPane />
         )}
       </div>
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showEnvironment && <EnvironmentModal onClose={() => setShowEnvironment(false)} />}
+      {showExport && <ExportModal onClose={() => setShowExport(false)} />}
     </div>
   );
 }

@@ -221,6 +221,12 @@ export const FALLBACK_LIMITS: EngineLimits = {
   benchmarkHistoryLimit: 50,
 };
 
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+  enabled: boolean;
+}
+
 export function emptyRequest(): HttpRequest {
   return {
     method: "GET",
