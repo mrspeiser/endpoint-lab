@@ -8,7 +8,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "version:bump": "./scripts/bump-version.sh",
+    "prepare:release": "npm run check && cd src-tauri && cargo fmt --all --check && cargo clippy --workspace -- -D warnings",
+    "fmt": "cd src-tauri && cargo fmt --all",
+    "test": "cd src-tauri && cargo test --workspace"
   },
   "dependencies": {
     "react": "^19.1.0",
