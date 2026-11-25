@@ -26,8 +26,8 @@ mod ipc_shape;
 pub use bench::{run_benchmark, BenchConfig, BenchPhase, BenchSnapshot, BenchSummary};
 pub use error::{Error, ErrorView};
 pub use http::{
-    execute_request, HeaderEntry, HttpExecutor, HttpRequest, HttpResponse, Method, QueryParam,
-    RequestBody, ResponseBody,
+    execute_request, parse_method, HeaderEntry, HttpExecutor, HttpRequest, HttpResponse, Method,
+    QueryParam, RequestBody, ResponseBody,
 };
 pub use limits::EngineLimits;
 pub use store::{

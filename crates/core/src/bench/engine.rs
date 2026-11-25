@@ -7,8 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bench::config::BenchConfig;
 use crate::bench::stats::{
-    empty_summary, AttemptOutcome, BenchPhase, BenchSnapshot, BenchSummary, RunState, SummaryIdentity,
-    TransportKind,
+    empty_summary, AttemptOutcome, BenchPhase, BenchSnapshot, BenchSummary, RunState,
+    SummaryIdentity, TransportKind,
 };
 use crate::error::Error;
 use crate::http::{redact_url, HttpExecutor, HttpRequest};

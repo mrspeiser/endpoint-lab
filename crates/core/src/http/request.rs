@@ -219,7 +219,8 @@ fn mask_entry(name: &str, value: &mut String, secret: &mut bool) {
 }
 
 pub fn build_url(request: &HttpRequest) -> Result<Url, Error> {
-    let mut url = Url::parse(request.url.trim()).map_err(|err| Error::InvalidUrl(err.to_string()))?;
+    let mut url =
+        Url::parse(request.url.trim()).map_err(|err| Error::InvalidUrl(err.to_string()))?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err(Error::InvalidUrl(format!(
             "unsupported scheme '{}'",
@@ -245,7 +246,11 @@ pub fn build_url(request: &HttpRequest) -> Result<Url, Error> {
 }
 
 pub fn normalize_timeout(timeout_ms: u64, default_ms: u64) -> Result<u64, Error> {
-    let timeout_ms = if timeout_ms == 0 { default_ms } else { timeout_ms };
+    let timeout_ms = if timeout_ms == 0 {
+        default_ms
+    } else {
+        timeout_ms
+    };
     if timeout_ms > MAX_TIMEOUT_MS {
         return Err(Error::InvalidConfig(format!(
             "timeout cannot exceed {MAX_TIMEOUT_MS} ms"
@@ -280,8 +285,12 @@ mod tests {
     fn query_parameters_are_appended_to_existing_ones() {
         let url = build_url(&request("http://127.0.0.1:9/items?page=2")).unwrap();
         let pairs: Vec<_> = url.query_pairs().collect();
-        assert!(pairs.iter().any(|(key, value)| key == "page" && value == "2"));
-        assert!(pairs.iter().any(|(key, value)| key == "q" && value == "rust"));
+        assert!(pairs
+            .iter()
+            .any(|(key, value)| key == "page" && value == "2"));
+        assert!(pairs
+            .iter()
+            .any(|(key, value)| key == "q" && value == "rust"));
     }
 
     #[test]

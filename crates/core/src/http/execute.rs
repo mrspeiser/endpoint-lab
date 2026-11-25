@@ -83,10 +83,7 @@ impl HttpExecutor {
                 Error::InvalidConfig(format!("invalid header name '{}'", entry.name.trim()))
             })?;
             let value = HeaderValue::from_str(&entry.value).map_err(|_| {
-                Error::InvalidConfig(format!(
-                    "invalid header value for '{}'",
-                    entry.name.trim()
-                ))
+                Error::InvalidConfig(format!("invalid header value for '{}'", entry.name.trim()))
             })?;
             headers.append(name, value);
         }
@@ -246,12 +243,7 @@ async fn consume(
 
 pub(crate) fn map_transport(err: reqwest::Error, timeout_ms: u64, secrets: &[String]) -> Error {
     let message = scrub(&err.to_string(), secrets);
-    classify_transport(
-        err.is_timeout(),
-        err.is_connect(),
-        &message,
-        timeout_ms,
-    )
+    classify_transport(err.is_timeout(), err.is_connect(), &message, timeout_ms)
 }
 
 pub(crate) fn classify_transport(

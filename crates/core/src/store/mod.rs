@@ -18,14 +18,14 @@ use crate::error::Error;
 use crate::http::{redact_request, secret_values, HeaderEntry, HttpRequest, Method, RequestBody};
 use crate::limits::{BENCHMARK_HISTORY_LIMIT, HISTORY_LIMIT};
 use crate::util::{now_ms, scrub, storage};
-use model::{
-    Collection, Document, Domain, LegacyDocument, SavedBody, SavedHeaderSet, SavedPath,
-};
 pub use model::{
     BodySummary, CollectionSummary, DomainSummary, HeaderSummary, HistoryEntry, LoadedBody,
     LoadedHeaders, PathSummary, StoreStatus,
 };
-pub use secrets::{seal_request, unseal_request, KeyringSecretStore, MemorySecretStore, SecretStore};
+use model::{Collection, Document, Domain, LegacyDocument, SavedBody, SavedHeaderSet, SavedPath};
+pub use secrets::{
+    seal_request, unseal_request, KeyringSecretStore, MemorySecretStore, SecretStore,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +55,8 @@ impl Store {
             };
         }
         match fs::read_to_string(&path).and_then(|text| {
-            read_document(&text).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            read_document(&text)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
         }) {
             Ok((doc, migrated)) => {
                 let mut store = Self {
@@ -63,9 +64,11 @@ impl Store {
                     doc,
                     load_error: None,
                 };
-                if migrated && let Err(err) = store.commit(store.doc.clone()) {
-                    store.load_error = Some(err.to_string());
-                    store.doc = Document::default();
+                if migrated {
+                    if let Err(err) = store.commit(store.doc.clone()) {
+                        store.load_error = Some(err.to_string());
+                        store.doc = Document::default();
+                    }
                 }
                 store
             }
@@ -138,7 +141,12 @@ impl Store {
         self.commit(doc)
     }
 
-    pub fn create_collection(&mut self, domain_id: &str, name: String, base_url: String) -> Result<CollectionSummary, Error> {
+    pub fn create_collection(
+        &mut self,
+        domain_id: &str,
+        name: String,
+        base_url: String,
+    ) -> Result<CollectionSummary, Error> {
         let name = require_name(&name, "collection name")?;
         let base_url = normalize_base_url(&base_url)?;
         let mut doc = self.doc.clone();
@@ -157,7 +165,12 @@ impl Store {
         Ok(summary)
     }
 
-    pub fn rename_collection(&mut self, domain_id: &str, id: &str, name: String) -> Result<(), Error> {
+    pub fn rename_collection(
+        &mut self,
+        domain_id: &str,
+        id: &str,
+        name: String,
+    ) -> Result<(), Error> {
         let name = require_name(&name, "collection name")?;
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, id)?;
@@ -165,7 +178,13 @@ impl Store {
         self.commit(doc)
     }
 
-    pub fn update_collection(&mut self, domain_id: &str, id: &str, name: String, base_url: String) -> Result<(), Error> {
+    pub fn update_collection(
+        &mut self,
+        domain_id: &str,
+        id: &str,
+        name: String,
+        base_url: String,
+    ) -> Result<(), Error> {
         let name = require_name(&name, "collection name")?;
         let base_url = normalize_base_url(&base_url)?;
         let mut doc = self.doc.clone();
@@ -198,7 +217,12 @@ impl Store {
     pub fn reorder_collections(&mut self, domain_id: &str, ids: Vec<String>) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         let domain = find_domain_mut(&mut doc, domain_id)?;
-        apply_order(&mut domain.collections, &ids, |collection| &collection.id, "collection")?;
+        apply_order(
+            &mut domain.collections,
+            &ids,
+            |collection| &collection.id,
+            "collection",
+        )?;
         self.commit(doc)
     }
 
@@ -244,7 +268,12 @@ impl Store {
         Ok(summary)
     }
 
-    pub fn delete_path(&mut self, domain_id: &str, collection_id: &str, path_id: &str) -> Result<(), Error> {
+    pub fn delete_path(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        path_id: &str,
+    ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
         let index = collection
@@ -389,11 +418,17 @@ impl Store {
         Ok(summary)
     }
 
-    pub fn import_paths(&mut self, domain_id: &str, collection_id: &str, raw: &str) -> Result<Vec<PathSummary>, Error> {
+    pub fn import_paths(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        raw: &str,
+    ) -> Result<Vec<PathSummary>, Error> {
         let parsed: PathImport = read_import(raw)?;
         let mut prepared = Vec::with_capacity(parsed.paths.len());
         for (index, item) in parsed.paths.into_iter().enumerate() {
-            let path = normalize_path(&item.path).map_err(|error| annotate(&format!("paths[{index}].path"), error))?;
+            let path = normalize_path(&item.path)
+                .map_err(|error| annotate(&format!("paths[{index}].path"), error))?;
             prepared.push((item.method, path));
         }
         let mut doc = self.doc.clone();
@@ -585,7 +620,11 @@ impl Store {
             .ok_or_else(|| Error::NotFound(format!("collection {collection_id}")))
     }
 
-    pub fn record_history(&mut self, request: &HttpRequest, mut outcome: HistoryOutcome) -> Result<(), Error> {
+    pub fn record_history(
+        &mut self,
+        request: &HttpRequest,
+        mut outcome: HistoryOutcome,
+    ) -> Result<(), Error> {
         if let Some(message) = outcome.error.as_deref() {
             outcome.error = Some(scrub(message, &secret_values(request)));
         }
@@ -624,21 +663,41 @@ impl Store {
         self.commit(doc)
     }
 
-    pub fn reorder_paths(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+    pub fn reorder_paths(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        ids: Vec<String>,
+    ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
         apply_order(&mut collection.paths, &ids, |path| &path.id, "path")?;
         self.commit(doc)
     }
 
-    pub fn reorder_headers(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+    pub fn reorder_headers(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        ids: Vec<String>,
+    ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
-        apply_order(&mut collection.headers, &ids, |headers| &headers.id, "headers")?;
+        apply_order(
+            &mut collection.headers,
+            &ids,
+            |headers| &headers.id,
+            "headers",
+        )?;
         self.commit(doc)
     }
 
-    pub fn reorder_bodies(&mut self, domain_id: &str, collection_id: &str, ids: Vec<String>) -> Result<(), Error> {
+    pub fn reorder_bodies(
+        &mut self,
+        domain_id: &str,
+        collection_id: &str,
+        ids: Vec<String>,
+    ) -> Result<(), Error> {
         let mut doc = self.doc.clone();
         let collection = find_collection_mut(&mut doc, domain_id, collection_id)?;
         apply_order(&mut collection.bodies, &ids, |body| &body.id, "body")?;
@@ -684,10 +743,10 @@ pub fn default_store_path() -> Result<PathBuf, Error> {
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(storage)?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(storage)?;
+        }
     }
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, bytes).map_err(storage)?;
@@ -763,9 +822,8 @@ fn read_import<'de, T: Deserialize<'de>>(raw: &'de str) -> Result<T, Error> {
         return Err(Error::InvalidConfig("import json cannot be empty".into()));
     }
     let mut deserializer = serde_json::Deserializer::from_str(trimmed);
-    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        Error::InvalidConfig(format!("{}: {}", error.path(), error.inner()))
-    })
+    serde_path_to_error::deserialize(&mut deserializer)
+        .map_err(|error| Error::InvalidConfig(format!("{}: {}", error.path(), error.inner())))
 }
 
 fn annotate(path: &str, error: Error) -> Error {
@@ -782,7 +840,10 @@ fn require_name(name: &str, label: &str) -> Result<String, Error> {
 
 fn read_document(text: &str) -> Result<(Document, bool), serde_json::Error> {
     let value: serde_json::Value = serde_json::from_str(text)?;
-    let version = value.get("version").and_then(serde_json::Value::as_u64).unwrap_or(1);
+    let version = value
+        .get("version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
     if version < 2 {
         let legacy: LegacyDocument = serde_json::from_value(value)?;
         return Ok((migrate_legacy(legacy), true));
@@ -840,15 +901,24 @@ fn migrate_legacy(legacy: LegacyDocument) -> Document {
     }
 }
 
-fn apply_order<T>(items: &mut Vec<T>, ids: &[String], id_of: impl Fn(&T) -> &str, label: &str) -> Result<(), Error> {
+fn apply_order<T>(
+    items: &mut Vec<T>,
+    ids: &[String],
+    id_of: impl Fn(&T) -> &str,
+    label: &str,
+) -> Result<(), Error> {
     if ids.len() != items.len() {
-        return Err(Error::InvalidConfig(format!("{label} order must include every item")));
+        return Err(Error::InvalidConfig(format!(
+            "{label} order must include every item"
+        )));
     }
     let mut seen = HashSet::new();
     let mut next = Vec::with_capacity(items.len());
     for id in ids {
         if !seen.insert(id.as_str()) {
-            return Err(Error::InvalidConfig(format!("{label} order lists {id} more than once")));
+            return Err(Error::InvalidConfig(format!(
+                "{label} order lists {id} more than once"
+            )));
         }
         let index = items
             .iter()
@@ -882,14 +952,21 @@ fn find_collection_mut<'a>(
 fn normalize_base_url(raw: &str) -> Result<String, Error> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(Error::InvalidConfig("collection base url cannot be empty".into()));
+        return Err(Error::InvalidConfig(
+            "collection base url cannot be empty".into(),
+        ));
     }
-    let mut parsed = url::Url::parse(trimmed).map_err(|_| Error::InvalidConfig("collection base url is not valid".into()))?;
+    let mut parsed = url::Url::parse(trimmed)
+        .map_err(|_| Error::InvalidConfig("collection base url is not valid".into()))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(Error::InvalidConfig("collection base url must be http or https".into()));
+        return Err(Error::InvalidConfig(
+            "collection base url must be http or https".into(),
+        ));
     }
     if parsed.host_str().is_none() {
-        return Err(Error::InvalidConfig("collection base url needs a host".into()));
+        return Err(Error::InvalidConfig(
+            "collection base url needs a host".into(),
+        ));
     }
     parsed.set_query(None);
     parsed.set_fragment(None);
@@ -970,8 +1047,18 @@ fn header_summary(
     doc.domains
         .iter()
         .find(|domain| domain.id == domain_id)
-        .and_then(|domain| domain.collections.iter().find(|collection| collection.id == collection_id))
-        .and_then(|collection| collection.headers.iter().find(|saved| saved.id == header_id))
+        .and_then(|domain| {
+            domain
+                .collections
+                .iter()
+                .find(|collection| collection.id == collection_id)
+        })
+        .and_then(|collection| {
+            collection
+                .headers
+                .iter()
+                .find(|saved| saved.id == header_id)
+        })
         .map(SavedHeaderSet::summary)
         .ok_or_else(|| Error::NotFound(format!("headers {header_id}")))
 }
@@ -1037,7 +1124,13 @@ mod tests {
         let marker = fixture_marker();
         let request = sample();
         let summary = store
-            .save_headers(&secrets, &domain.id, &collection.id, "Login".into(), &request.headers)
+            .save_headers(
+                &secrets,
+                &domain.id,
+                &collection.id,
+                "Login".into(),
+                &request.headers,
+            )
             .unwrap();
         store
             .save_body(
@@ -1061,7 +1154,11 @@ mod tests {
 
         let on_disk = fs::read_to_string(&path).unwrap();
         assert!(!on_disk.contains(&marker), "{on_disk}");
-        assert!(on_disk.contains("***") || on_disk.contains("secretRef") || on_disk.contains("secret_ref"));
+        assert!(
+            on_disk.contains("***")
+                || on_disk.contains("secretRef")
+                || on_disk.contains("secret_ref")
+        );
 
         let loaded = store
             .load_headers(&secrets, &domain.id, &collection.id, &summary.id)
@@ -1165,7 +1262,11 @@ mod tests {
         let mut store = Store::open(dir.path().join("store.json"));
         let domain = store.create_domain("Local".into()).unwrap();
         let created = store
-            .create_collection(&domain.id, "Api".into(), "http://127.0.0.1:8080/v1/?x=1".into())
+            .create_collection(
+                &domain.id,
+                "Api".into(),
+                "http://127.0.0.1:8080/v1/?x=1".into(),
+            )
             .unwrap();
         assert_eq!(created.base_url, "http://127.0.0.1:8080/v1");
         assert!(store
@@ -1182,7 +1283,11 @@ mod tests {
                 "https://api.example.com/v2/".into(),
             )
             .unwrap();
-        let listed = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
+        let listed = store
+            .list_domains()
+            .into_iter()
+            .find(|item| item.id == domain.id)
+            .unwrap();
         assert_eq!(listed.collections[0].name, "Billing");
         assert_eq!(listed.collections[0].base_url, "https://api.example.com/v2");
     }
@@ -1193,8 +1298,14 @@ mod tests {
         let mut store = Store::open(dir.path().join("store.json"));
         let first = store.create_domain("Billing".into()).unwrap();
         let second = store.create_domain("Local".into()).unwrap();
-        store.reorder_domains(vec![second.id.clone(), first.id.clone()]).unwrap();
-        let names: Vec<_> = store.list_domains().into_iter().map(|domain| domain.name).collect();
+        store
+            .reorder_domains(vec![second.id.clone(), first.id.clone()])
+            .unwrap();
+        let names: Vec<_> = store
+            .list_domains()
+            .into_iter()
+            .map(|domain| domain.name)
+            .collect();
         assert_eq!(names, ["Local", "Billing"]);
 
         let alpha = store
@@ -1206,9 +1317,17 @@ mod tests {
         store
             .reorder_collections(&second.id, vec![beta.id.clone(), alpha.id.clone()])
             .unwrap();
-        let collections = store.list_domains().into_iter().find(|domain| domain.id == second.id).unwrap();
+        let collections = store
+            .list_domains()
+            .into_iter()
+            .find(|domain| domain.id == second.id)
+            .unwrap();
         assert_eq!(
-            collections.collections.iter().map(|item| item.name.as_str()).collect::<Vec<_>>(),
+            collections
+                .collections
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
             ["Beta", "Alpha"]
         );
 
@@ -1219,7 +1338,11 @@ mod tests {
             .save_path(&second.id, &beta.id, Method::Get, "/health".into())
             .unwrap();
         store
-            .reorder_paths(&second.id, &beta.id, vec![health.id.clone(), users.id.clone()])
+            .reorder_paths(
+                &second.id,
+                &beta.id,
+                vec![health.id.clone(), users.id.clone()],
+            )
             .unwrap();
         let paths = store
             .list_domains()
@@ -1231,7 +1354,11 @@ mod tests {
             .find(|collection| collection.id == beta.id)
             .unwrap();
         assert_eq!(
-            paths.paths.iter().map(|item| item.path.as_str()).collect::<Vec<_>>(),
+            paths
+                .paths
+                .iter()
+                .map(|item| item.path.as_str())
+                .collect::<Vec<_>>(),
             ["/health", "/users"]
         );
         assert!(store.reorder_domains(vec![second.id.clone()]).is_err());
@@ -1301,8 +1428,16 @@ mod tests {
         assert_eq!(bodies[0].kind, "json");
         assert_eq!(bodies[1].kind, "none");
 
-        let listed = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
-        let saved = listed.collections.into_iter().find(|item| item.id == collection.id).unwrap();
+        let listed = store
+            .list_domains()
+            .into_iter()
+            .find(|item| item.id == domain.id)
+            .unwrap();
+        let saved = listed
+            .collections
+            .into_iter()
+            .find(|item| item.id == collection.id)
+            .unwrap();
         assert_eq!(saved.paths.len(), 2);
         assert_eq!(saved.headers.len(), 1);
         assert_eq!(saved.bodies.len(), 2);
@@ -1322,8 +1457,16 @@ mod tests {
             r#"{"paths":[{"method":"OPTIONS","path":"/ok"}]}"#,
         );
         assert!(bad_method.is_err());
-        let after = store.list_domains().into_iter().find(|item| item.id == domain.id).unwrap();
-        let still = after.collections.into_iter().find(|item| item.id == collection.id).unwrap();
+        let after = store
+            .list_domains()
+            .into_iter()
+            .find(|item| item.id == domain.id)
+            .unwrap();
+        let still = after
+            .collections
+            .into_iter()
+            .find(|item| item.id == collection.id)
+            .unwrap();
         assert_eq!(still.paths.len(), 2);
     }
 

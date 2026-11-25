@@ -2,9 +2,9 @@ use tauri::{ipc::Channel, State};
 
 use endpoint_lab_core::{
     run_benchmark as execute_benchmark, BenchConfig, BenchSnapshot, BenchSummary, BodySummary,
-    CancellationToken, CollectionSummary, DomainSummary, EngineLimits, Error, ErrorView, HeaderEntry,
-    HeaderSummary, HistoryEntry, HistoryOutcome, HttpRequest, HttpResponse, LoadedBody, LoadedHeaders,
-    Method, PathSummary, RequestBody, StoreStatus,
+    CancellationToken, CollectionSummary, DomainSummary, EngineLimits, Error, ErrorView,
+    HeaderEntry, HeaderSummary, HistoryEntry, HistoryOutcome, HttpRequest, HttpResponse,
+    LoadedBody, LoadedHeaders, Method, PathSummary, RequestBody, StoreStatus,
 };
 
 use crate::state::{lock, AppState, BenchGuard, InflightGuard};
@@ -69,7 +69,11 @@ pub fn create_domain(state: State<'_, AppState>, name: String) -> Result<DomainS
 }
 
 #[tauri::command]
-pub fn rename_domain(state: State<'_, AppState>, id: String, name: String) -> Result<(), ErrorView> {
+pub fn rename_domain(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), ErrorView> {
     lock(&state.store)
         .rename_domain(&id, name)
         .map_err(Error::view)
@@ -138,7 +142,11 @@ pub fn delete_collection(
 }
 
 #[tauri::command]
-pub fn reorder_collections(state: State<'_, AppState>, domain_id: String, ids: Vec<String>) -> Result<(), ErrorView> {
+pub fn reorder_collections(
+    state: State<'_, AppState>,
+    domain_id: String,
+    ids: Vec<String>,
+) -> Result<(), ErrorView> {
     lock(&state.store)
         .reorder_collections(&domain_id, ids)
         .map_err(Error::view)

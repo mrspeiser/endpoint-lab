@@ -94,7 +94,10 @@ pub async fn status_500() -> StatusCode {
 }
 
 pub async fn large() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/plain")], "a".repeat(1_500_000))
+    (
+        [(header::CONTENT_TYPE, "text/plain")],
+        "a".repeat(1_500_000),
+    )
 }
 
 pub async fn binary() -> impl IntoResponse {
@@ -113,7 +116,10 @@ pub async fn bad_json() -> impl IntoResponse {
 }
 
 pub fn echo_router() -> Router {
-    Router::new().route("/echo", get(echo).post(echo).put(echo).patch(echo).delete(echo))
+    Router::new().route(
+        "/echo",
+        get(echo).post(echo).put(echo).patch(echo).delete(echo),
+    )
 }
 
 pub fn fast_router() -> Router {

@@ -6,9 +6,7 @@ use std::time::{Duration, Instant};
 use axum::{routing::get, Router};
 use tokio_util::sync::CancellationToken;
 
-use endpoint_lab_core::{
-    HeaderEntry, HttpExecutor, Method, QueryParam, RequestBody, ResponseBody,
-};
+use endpoint_lab_core::{HeaderEntry, HttpExecutor, Method, QueryParam, RequestBody, ResponseBody};
 
 use support::{bad_json, binary, echo_router, large, plain, request, serve};
 
@@ -66,7 +64,10 @@ async fn plain_text_invalid_json_and_binary_are_distinct() {
     .await;
     let executor = HttpExecutor::new().unwrap();
     let plain_response = executor
-        .execute(&request(Method::Get, &format!("{base}/plain")), &CancellationToken::new())
+        .execute(
+            &request(Method::Get, &format!("{base}/plain")),
+            &CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -78,7 +79,10 @@ async fn plain_text_invalid_json_and_binary_are_distinct() {
     );
 
     let bad = executor
-        .execute(&request(Method::Get, &format!("{base}/bad")), &CancellationToken::new())
+        .execute(
+            &request(Method::Get, &format!("{base}/bad")),
+            &CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -90,7 +94,10 @@ async fn plain_text_invalid_json_and_binary_are_distinct() {
     );
 
     let binary_response = executor
-        .execute(&request(Method::Get, &format!("{base}/bin")), &CancellationToken::new())
+        .execute(
+            &request(Method::Get, &format!("{base}/bin")),
+            &CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert!(matches!(binary_response.body, ResponseBody::Binary { .. }));

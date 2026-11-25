@@ -87,7 +87,10 @@ fn secret_err(err: impl std::fmt::Display) -> Error {
     Error::Secret(err.to_string())
 }
 
-pub fn seal_request(request: &HttpRequest, secrets: &dyn SecretStore) -> Result<HttpRequest, Error> {
+pub fn seal_request(
+    request: &HttpRequest,
+    secrets: &dyn SecretStore,
+) -> Result<HttpRequest, Error> {
     let mut sealed = request.clone();
     sealed.headers = seal_headers(&request.headers, secrets)?;
     sealed.query = seal_query(&request.query, secrets)?;
@@ -97,7 +100,10 @@ pub fn seal_request(request: &HttpRequest, secrets: &dyn SecretStore) -> Result<
     Ok(sealed)
 }
 
-pub fn unseal_request(request: &HttpRequest, secrets: &dyn SecretStore) -> Result<HttpRequest, Error> {
+pub fn unseal_request(
+    request: &HttpRequest,
+    secrets: &dyn SecretStore,
+) -> Result<HttpRequest, Error> {
     let mut opened = request.clone();
     for header in &mut opened.headers {
         fill_secret(&mut header.value, header.secret_ref.as_deref(), secrets)?;
@@ -107,33 +113,6 @@ pub fn unseal_request(request: &HttpRequest, secrets: &dyn SecretStore) -> Resul
     }
     opened.url = unseal_url(&request.url, &request.url_secret_refs, secrets)?;
     Ok(opened)
-}
-
-pub fn refs_of(request: &HttpRequest) -> Vec<String> {
-    let mut refs = Vec::new();
-    for header in &request.headers {
-        if let Some(id) = &header.secret_ref {
-            refs.push(id.clone());
-        }
-    }
-    for param in &request.query {
-        if let Some(id) = &param.secret_ref {
-            refs.push(id.clone());
-        }
-    }
-    for item in &request.url_secret_refs {
-        refs.push(item.secret_ref.clone());
-    }
-    refs
-}
-
-pub fn forget_refs(secrets: &dyn SecretStore, previous: &HttpRequest, current: &HttpRequest) {
-    let kept: HashSet<_> = refs_of(current).into_iter().collect();
-    let stale: Vec<_> = refs_of(previous)
-        .into_iter()
-        .filter(|id| !kept.contains(id))
-        .collect();
-    delete_refs(secrets, &stale);
 }
 
 pub fn delete_refs(secrets: &dyn SecretStore, refs: &[String]) {
@@ -175,7 +154,10 @@ pub(crate) fn forget_header_refs(
     delete_refs(secrets, &stale);
 }
 
-pub(crate) fn seal_headers(headers: &[HeaderEntry], secrets: &dyn SecretStore) -> Result<Vec<HeaderEntry>, Error> {
+pub(crate) fn seal_headers(
+    headers: &[HeaderEntry],
+    secrets: &dyn SecretStore,
+) -> Result<Vec<HeaderEntry>, Error> {
     let mut sealed = Vec::with_capacity(headers.len());
     for header in headers {
         let mut saved = header.clone();
@@ -230,12 +212,17 @@ fn store_value(
     Ok(existing.filter(|id| !id.is_empty()).map(str::to_string))
 }
 
-fn fill_secret(value: &mut String, secret_ref: Option<&str>, secrets: &dyn SecretStore) -> Result<(), Error> {
-    if value.is_empty()
-        && let Some(id) = secret_ref
-        && let Some(stored) = secrets.get(id)?
-    {
-        *value = stored;
+fn fill_secret(
+    value: &mut String,
+    secret_ref: Option<&str>,
+    secrets: &dyn SecretStore,
+) -> Result<(), Error> {
+    if value.is_empty() {
+        if let Some(id) = secret_ref {
+            if let Some(stored) = secrets.get(id)? {
+                *value = stored;
+            }
+        }
     }
     Ok(())
 }
@@ -308,7 +295,11 @@ fn seal_url(
     Ok((parsed.to_string(), refs))
 }
 
-fn unseal_url(url: &str, refs: &[UrlSecretRef], secrets: &dyn SecretStore) -> Result<String, Error> {
+fn unseal_url(
+    url: &str,
+    refs: &[UrlSecretRef],
+    secrets: &dyn SecretStore,
+) -> Result<String, Error> {
     if refs.is_empty() {
         return Ok(url.to_string());
     }
@@ -325,7 +316,11 @@ fn unseal_url(url: &str, refs: &[UrlSecretRef], secrets: &dyn SecretStore) -> Re
                 .map_err(|_| Error::InvalidUrl("could not restore a url password".into()))?;
             continue;
         }
-        if let Some(index) = item.slot.strip_prefix("q:").and_then(|raw| raw.parse::<usize>().ok()) {
+        if let Some(index) = item
+            .slot
+            .strip_prefix("q:")
+            .and_then(|raw| raw.parse::<usize>().ok())
+        {
             set_query_value(&mut parsed, index, &value);
         }
     }

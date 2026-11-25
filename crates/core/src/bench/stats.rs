@@ -12,17 +12,7 @@ use crate::limits::HISTOGRAM_MAX_US;
 use crate::util::{duration_ms, now_ms};
 
 const HISTOGRAM_EDGES_US: [u64; 12] = [
-    1_000,
-    2_000,
-    5_000,
-    10_000,
-    25_000,
-    50_000,
-    100_000,
-    250_000,
-    500_000,
-    1_000_000,
-    2_000_000,
+    1_000, 2_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_000_000,
     5_000_000,
 ];
 
@@ -77,9 +67,19 @@ impl TransportKind {
 
 #[derive(Debug)]
 pub enum AttemptOutcome {
-    Success { bytes: u64, latency_us: u64 },
-    HttpError { status: u16, bytes: u64, latency_us: u64 },
-    Transport { kind: TransportKind, latency_us: u64 },
+    Success {
+        bytes: u64,
+        latency_us: u64,
+    },
+    HttpError {
+        status: u16,
+        bytes: u64,
+        latency_us: u64,
+    },
+    Transport {
+        kind: TransportKind,
+        latency_us: u64,
+    },
     Cancelled,
 }
 
@@ -175,13 +175,23 @@ impl RunState {
     }
 
     pub fn record(&self, outcome: AttemptOutcome) {
-        let mut stats = self.stats.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut stats = self
+            .stats
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         stats.record(outcome);
     }
 
     pub fn snapshot(&self, phase: BenchPhase, started: Instant) -> BenchSnapshot {
-        let stats = self.stats.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        stats.to_snapshot(phase, started.elapsed(), self.in_flight.load(Ordering::Relaxed))
+        let stats = self
+            .stats
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stats.to_snapshot(
+            phase,
+            started.elapsed(),
+            self.in_flight.load(Ordering::Relaxed),
+        )
     }
 
     pub fn summary(
@@ -378,10 +388,7 @@ fn histogram_bars(histogram: &Histogram<u64>) -> Vec<HistBar> {
     for edge in HISTOGRAM_EDGES_US {
         let low = previous.saturating_add(1);
         let count = count_between(histogram, low, edge);
-        bars.push(HistBar {
-            le_us: edge,
-            count,
-        });
+        bars.push(HistBar { le_us: edge, count });
         previous = edge;
     }
     let high = histogram.high();
@@ -470,8 +477,12 @@ mod tests {
         let errors = error_list(&stats.errors);
         assert_eq!(errors[0].cause, "http_500");
         assert_eq!(errors[0].count, 2);
-        assert!(errors.iter().any(|item| item.cause == "timeout" && item.count == 1));
-        assert!(errors.iter().any(|item| item.cause == "http_404" && item.count == 1));
+        assert!(errors
+            .iter()
+            .any(|item| item.cause == "timeout" && item.count == 1));
+        assert!(errors
+            .iter()
+            .any(|item| item.cause == "http_404" && item.count == 1));
         let bars = histogram_bars(&stats.histogram);
         assert!(bars.iter().map(|bar| bar.count).sum::<u64>() >= stats.latency_count);
     }

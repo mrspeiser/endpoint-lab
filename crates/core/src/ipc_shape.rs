@@ -3,7 +3,8 @@ use crate::http::{HttpRequest, HttpResponse};
 
 #[test]
 fn ipc_fixtures_round_trip() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src/fixtures/ipc-shapes.json");
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../src/fixtures/ipc-shapes.json");
     let text = std::fs::read_to_string(&path).unwrap();
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
 

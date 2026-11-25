@@ -14,6 +14,7 @@ mod response;
 pub use execute::{execute_request, HttpExecutor};
 pub use redact::{is_sensitive_name, redact_request, redact_url, secret_values};
 pub use request::{
-    build_url, parse_method, HeaderEntry, HttpRequest, Method, QueryParam, RequestBody, UrlSecretRef,
+    build_url, parse_method, HeaderEntry, HttpRequest, Method, QueryParam, RequestBody,
+    UrlSecretRef,
 };
 pub use response::{HttpResponse, ResponseBody};

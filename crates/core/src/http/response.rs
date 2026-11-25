@@ -52,15 +52,17 @@ pub fn interpret_body(raw: &RawBody) -> ResponseBody {
     }
     let text = String::from_utf8_lossy(&raw.bytes).into_owned();
     let content_type = raw.content_type.as_deref().unwrap_or("");
-    let want_json = content_type.to_ascii_lowercase().contains("json") || looks_like_json(&raw.bytes);
-    if want_json
-        && let Ok(value) = serde_json::from_slice::<Value>(&raw.bytes)
-        && let Ok(pretty) = serde_json::to_string_pretty(&value)
-    {
-        return ResponseBody::Text {
-            content: pretty,
-            pretty: true,
-        };
+    let want_json =
+        content_type.to_ascii_lowercase().contains("json") || looks_like_json(&raw.bytes);
+    if want_json {
+        if let Ok(value) = serde_json::from_slice::<Value>(&raw.bytes) {
+            if let Ok(pretty) = serde_json::to_string_pretty(&value) {
+                return ResponseBody::Text {
+                    content: pretty,
+                    pretty: true,
+                };
+            }
+        }
     }
     ResponseBody::Text {
         content: text,

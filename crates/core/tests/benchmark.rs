@@ -84,8 +84,16 @@ async fn warmup_is_excluded_and_latency_tracks_the_injected_delay() {
         .unwrap();
     assert_eq!(hits.hits.load(std::sync::atomic::Ordering::SeqCst), 14);
     assert_eq!(summary.success, 10);
-    assert!(summary.latency.p50_us >= 10_000, "p50 {}", summary.latency.p50_us);
-    assert!(summary.latency.p50_us <= 250_000, "p50 {}", summary.latency.p50_us);
+    assert!(
+        summary.latency.p50_us >= 10_000,
+        "p50 {}",
+        summary.latency.p50_us
+    );
+    assert!(
+        summary.latency.p50_us <= 250_000,
+        "p50 {}",
+        summary.latency.p50_us
+    );
     assert!(summary.latency.min_us <= summary.latency.p50_us);
     assert!(summary.latency.p50_us <= summary.latency.p95_us);
     assert!(summary.latency.p95_us <= summary.latency.p99_us);
@@ -107,7 +115,10 @@ async fn http_status_failures_are_not_transport_failures() {
     assert_eq!(summary.success, 0);
     assert_eq!(summary.http_errors, 8);
     assert_eq!(summary.transport_errors, 0);
-    assert!(summary.errors.iter().any(|item| item.cause == "http_500" && item.count == 8));
+    assert!(summary
+        .errors
+        .iter()
+        .any(|item| item.cause == "http_500" && item.count == 8));
 }
 
 #[tokio::test]

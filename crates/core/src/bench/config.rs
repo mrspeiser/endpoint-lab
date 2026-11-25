@@ -38,12 +38,12 @@ impl BenchConfig {
                 "concurrency cannot exceed {MAX_CONCURRENCY}"
             )));
         }
-        if let Some(duration) = self.duration_ms
-            && (duration == 0 || duration > MAX_DURATION_MS)
-        {
-            return Err(Error::InvalidConfig(format!(
-                "duration must be between 1 and {MAX_DURATION_MS} ms"
-            )));
+        if let Some(duration) = self.duration_ms {
+            if duration == 0 || duration > MAX_DURATION_MS {
+                return Err(Error::InvalidConfig(format!(
+                    "duration must be between 1 and {MAX_DURATION_MS} ms"
+                )));
+            }
         }
         if self.timeout_ms == 0 || self.timeout_ms > MAX_TIMEOUT_MS {
             return Err(Error::InvalidConfig(format!(

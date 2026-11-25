@@ -103,7 +103,9 @@ async fn run(cli: Cli) -> Result<(), endpoint_lab_core::Error> {
             timeout_ms,
         } => {
             let request = build_request(method, url, headers, query, body, json, timeout_ms)?;
-            let response = executor.execute(&request, &CancellationToken::new()).await?;
+            let response = executor
+                .execute(&request, &CancellationToken::new())
+                .await?;
             print_response(&response);
             Ok(())
         }
@@ -172,8 +174,14 @@ fn build_request(
     Ok(HttpRequest {
         method: parse_method(&method)?,
         url,
-        headers: headers.iter().map(|line| parse_header(line)).collect::<Result<_, _>>()?,
-        query: query.iter().map(|line| parse_query(line)).collect::<Result<_, _>>()?,
+        headers: headers
+            .iter()
+            .map(|line| parse_header(line))
+            .collect::<Result<_, _>>()?,
+        query: query
+            .iter()
+            .map(|line| parse_query(line))
+            .collect::<Result<_, _>>()?,
         body,
         timeout_ms,
         url_secret_refs: Vec::new(),
@@ -211,10 +219,7 @@ fn parse_query(line: &str) -> Result<QueryParam, endpoint_lab_core::Error> {
 }
 
 fn print_response(response: &endpoint_lab_core::HttpResponse) {
-    println!(
-        "HTTP {} {}",
-        response.status, response.status_text
-    );
+    println!("HTTP {} {}", response.status, response.status_text);
     println!("elapsed: {} ms", response.elapsed_ms);
     let exact = if response.size_exact { "" } else { "at least " };
     println!("size: {exact}{} bytes", response.size_bytes);
