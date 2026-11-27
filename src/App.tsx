@@ -45,6 +45,7 @@ function App() {
             Benchmark
           </button>
         </div>
+        <span className="engine-tag">Rust engine</span>
         <div className="topbar-actions">
           <button type="button" onClick={() => setShowEnvironment(true)} title="Environment Variables">
             🔧 Environment
@@ -56,7 +57,6 @@ function App() {
             ⚙️ Settings
           </button>
         </div>
-        <span className="engine-tag">Rust engine</span>
       </header>
       {state.notice ? <div className="banner info">{state.notice}</div> : null}
       {state.storeStatus && !state.storeStatus.ok ? (
